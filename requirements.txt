@@ -1,7 +1,7 @@
-nltk>=3.6.4
-numpy==1.22.0
-torch==1.7.1
-transformers==4.0.1
-apex==0.9.10dev
-scikit_learn==0.24.1
-seqeval
+nltk>=3.8.1
+numpy>=1.26.4
+torch>=2.6.0
+transformers>=4.49.0,<5
+scikit_learn>=1.4.2
+seqeval>=1.2.2
+datasets>=2.19.0

@@ -3,7 +3,6 @@ from util.data_loader import get_loader
 from util.framework import FewShotNERFramework
 from util.word_encoder import BERTWordEncoder
 from model.proto import Proto
-from model.nnshot import NNShot
 import sys
 import torch
 from torch import optim, nn

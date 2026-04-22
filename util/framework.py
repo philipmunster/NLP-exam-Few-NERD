@@ -9,11 +9,10 @@ import torch
 from torch import autograd, optim, nn
 from torch.autograd import Variable
 from torch.nn import functional as F
+from torch.optim import AdamW
 # from pytorch_pretrained_bert import BertAdam
-from transformers import AdamW, get_linear_schedule_with_warmup
+from transformers import get_linear_schedule_with_warmup
 from torch.nn.parallel import DistributedDataParallel as DDP
-
-from .viterbi import ViterbiDecoder
 
 
 def get_abstract_transitions(train_fname, use_sampled_data=True):
@@ -362,7 +361,7 @@ class FewShotNERFramework:
         if use_sgd_for_bert:
             optimizer = torch.optim.SGD(parameters_to_optimize, lr=learning_rate)
         else:
-            optimizer = AdamW(parameters_to_optimize, lr=learning_rate, correct_bias=False)
+            optimizer = AdamW(parameters_to_optimize, lr=learning_rate)
         scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=warmup_step, num_training_steps=train_iter) 
         
         # load model
