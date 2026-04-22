@@ -4,7 +4,7 @@
 - uv pip install -r requirements.txt
 
 ### Test run
-python3 train_demo.py --mode inter --lr 1e-4 --batch_size 8 --trainN 5 --N 5 --K 1 --Q 1 --train_iter 100 --val_iter 50 --test_iter 100 --val_step 100 --max_length 64 --model proto --use_sgd_for_bert
+python3 train_demo.py --mode inter --lr 1e-4 --batch_size 8 --trainN 5 --N 5 --K 1 --Q 1 --train_iter 100 --val_iter 50 --test_iter 100 --val_step 100 --max_length 64 --model proto
 
 ### Model args
 ```shell
