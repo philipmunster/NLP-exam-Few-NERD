@@ -62,7 +62,7 @@ class Sample(FewshotSampleBase):
 
 class FewShotNERDatasetWithRandomSampling(data.Dataset):
     """
-    Fewshot NER Dataset
+    Fewshot NER Dataset. Specific epiodes are created randomly.
     """
     def __init__(self, filepath, tokenizer, N, K, Q, max_length, ignore_label_id=-1):
         if not os.path.exists(filepath):
@@ -216,6 +216,9 @@ class FewShotNERDatasetWithRandomSampling(data.Dataset):
         return 100000
 
 class FewShotNERDataset(FewShotNERDatasetWithRandomSampling):
+    """
+      Used only when we have the actual episodes used in the paper. They are currently not available.
+    """
     def __init__(self, filepath, tokenizer, max_length, ignore_label_id=-1):
         if not os.path.exists(filepath):
             print("[ERROR] Data file does not exist!")

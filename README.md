@@ -1,3 +1,6 @@
+### Download dataset from Huggingface
+bash data/download.sh inter
+
 ### Venv
 - cd to repo
 - uv init
