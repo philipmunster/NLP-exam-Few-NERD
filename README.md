@@ -30,11 +30,4 @@ python3 train_demo.py --mode inter --lr 1e-4 --batch_size 8 --trainN 5 --N 5 --K
 -- only_test            no training process, only test
 -- ckpt_name            checkpoint name
 -- seed                 random seed
-<<<<<<< HEAD
 ```
-=======
--- pretrain_ckpt        bert pre-trained checkpoint
--- dot                  use dot instead of L2 distance in distance calculation
--- use_sgd_for_bert     use SGD instead of AdamW for BERT.
-```
->>>>>>> 235b17366bd1292d69e3e892e2bbfb471c80e449
