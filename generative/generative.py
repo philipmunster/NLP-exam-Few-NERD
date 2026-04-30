@@ -29,14 +29,13 @@ classes, support_df, test_df = data_loader_generative(
 
 
 
-# Change to "meta-llama/Llama-3.1-8B-Instruct" on HPC
-model_id = "meta-llama/Llama-3.2-1B-Instruct"
+model_id = "meta-llama/Llama-3.1-8B-Instruct"
 
 pipeline = transformers.pipeline(
     "text-generation",
     model=model_id,
-    model_kwargs={"dtype": torch.float16},
-    device_map="cpu"  # change to "auto" on HPC
+    model_kwargs={"load_in_4bit": True},
+    device_map="auto"
 )
 
 # Build class list string

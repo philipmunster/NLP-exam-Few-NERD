@@ -15,7 +15,7 @@ def data_loader_generative(filepath, n, k, test_size, seed):
     sentences, labels = [], []
     current_tokens, current_labels = [], []
 
-    with open(filepath) as f:
+    with open(filepath, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
