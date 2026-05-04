@@ -203,5 +203,3 @@ for prompt in prompt_names:
                     index=False,
                     header=not os.path.exists(output_path),
                 )
-
-
