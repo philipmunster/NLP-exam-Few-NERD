@@ -10,15 +10,11 @@ from transformers import BitsAndBytesConfig
 # Change to "meta-llama/Llama-3.1-8B-Instruct" on HPC
 model_id = "meta-llama/Llama-3.1-8B-Instruct"
 
-quantization_config = BitsAndBytesConfig(load_in_4bit=True)
 
 pipeline = transformers.pipeline(
     "text-generation",
     model=model_id,
-    model_kwargs={
-        "quantization_config": quantization_config,
-    },
-    device_map="cuda"
+    device_map="auto"
 )
 
 n_list = [5, 10]
@@ -30,7 +26,7 @@ for n in n_list:
     for k in k_list:
         for seed in seed_list:
 
-            print(f"Iteration using Promt:{prompt}, n = {n}, k = {k}, seed = {seed}, test_size = {test_size}")
+            print(f"Iteration using n = {n}, k = {k}, seed = {seed}")
 
             classes, support_df, test_df = data_loader_generative(
                 os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data', 'inter', 'test.txt'),
@@ -63,18 +59,8 @@ for n in n_list:
                     1. Use ONLY the entity types that appear in the support examples.
                     2. Label EVERY token in the query -- no skipping.
                     3. Use O for tokens that are not part of a named entity.
-                    4. Return a valid JSON array only.
-                    5. Each JSON object must contain exactly two keys:
-                    - "token": the original query token
-                    - "label": the assigned label
-                    6. Do NOT add explanations, headers, markdown code fences, comments, or text before or after the JSON.
-                    7. Do NOT use real example tokens or labels from outside the support examples.
-                    8. Copy each query token exactly once and in the same order as in the query sentence.
-                    Required JSON structure:
-                    [
-                    {{"token": "<query_token_1>", "label": "<label_for_query_token_1>"}},
-                    {{"token": "<query_token_2>", "label": "<label_for_query_token_2>"}}
-                    ]
+                    4. Output format: one token:::LABEL per line, nothing else.
+                    5. Do NOT add explanations, headers, or blank lines between tokens.
                     SUPPORT EXAMPLES:
                     {examples_str}
                     QUERY SENTENCE:
@@ -92,10 +78,8 @@ for n in n_list:
 
 
             row = {
-                "prompt": prompt,
                 "n": n,
                 "k": k,
-                "test_size": test_size,
                 "seed": seed,
                 "model_output": [raw],   # wrap in list so it stores as object
                 "ground_truth": [ground_truth],
@@ -103,7 +87,7 @@ for n in n_list:
 
             results_df = pd.DataFrame([row])
 
-            output_path = "generative/output/ner_results.csv"
+            output_path = "generative/output/ner_results_final.csv"
             results_df.to_csv(
                 output_path,
                 mode='a',
