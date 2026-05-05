@@ -14,49 +14,6 @@ from torch.optim import AdamW
 from transformers import get_linear_schedule_with_warmup
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-
-def get_abstract_transitions(train_fname, use_sampled_data=True):
-    """
-    Compute abstract transitions on the training dataset for StructShot
-    """
-    if use_sampled_data:
-        samples = data_loader.FewShotNERDataset(train_fname, None, 1).samples
-        tag_lists = []
-        for sample in samples:
-            tag_lists += sample['support']['label'] + sample['query']['label']
-    else:
-        samples = data_loader.FewShotNERDatasetWithRandomSampling(train_fname, None, 1, 1, 1, 1).samples
-        tag_lists = [sample.tags for sample in samples]
-
-    s_o, s_i = 0., 0.
-    o_o, o_i = 0., 0.
-    i_o, i_i, x_y = 0., 0., 0.
-    for tags in tag_lists:
-        if tags[0] == 'O': s_o += 1
-        else: s_i += 1
-        for i in range(len(tags)-1):
-            p, n = tags[i], tags[i+1]
-            if p == 'O':
-                if n == 'O': o_o += 1
-                else: o_i += 1
-            else:
-                if n == 'O':
-                    i_o += 1
-                elif p != n:
-                    x_y += 1
-                else:
-                    i_i += 1
-
-    trans = []
-    trans.append(s_o / (s_o + s_i))
-    trans.append(s_i / (s_o + s_i))
-    trans.append(o_o / (o_o + o_i))
-    trans.append(o_i / (o_o + o_i))
-    trans.append(i_o / (i_o + i_i + x_y))
-    trans.append(i_i / (i_o + i_i + x_y))
-    trans.append(x_y / (i_o + i_i + x_y))
-    return trans
-
 def warmup_linear(global_step, warmup_step):
     if global_step < warmup_step:
         return global_step / warmup_step
@@ -351,11 +308,17 @@ class FewShotNERFramework:
         # Init optimizer
         print('Use bert optim!')
         parameters_to_optimize = list(model.named_parameters())
-        no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
+        no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight', 'norm.weight', 'norm.bias']
+        
+        # Filter to only trainable parameters (for LoRA/quantization compatibility)
+        trainable_params = [(n, p) for n, p in parameters_to_optimize if p.requires_grad]
+        if len(trainable_params) < len(parameters_to_optimize):
+            print(f"[INFO] Filtered to {len(trainable_params)} trainable params out of {len(parameters_to_optimize)} total")
+        
         parameters_to_optimize = [
-            {'params': [p for n, p in parameters_to_optimize 
+            {'params': [p for n, p in trainable_params 
                 if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
-            {'params': [p for n, p in parameters_to_optimize
+            {'params': [p for n, p in trainable_params
                 if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
         ]
         if use_sgd_for_bert:
@@ -425,7 +388,7 @@ class FewShotNERFramework:
                 if (it + 1) % 100 == 0 or (it + 1) % val_step == 0:
                     precision = correct_cnt / pred_cnt
                     recall = correct_cnt / label_cnt
-                    f1 = 2 * precision * recall / (precision + recall)
+                    f1 = 2 * precision * recall / (precision + recall + 1e-8)
                     sys.stdout.write('step: {0:4} | loss: {1:2.6f} | [ENTITY] precision: {2:3.4f}, recall: {3:3.4f}, f1: {4:3.4f}'\
                         .format(it + 1, iter_loss/ iter_sample, precision, recall, f1) + '\r')
                 sys.stdout.flush()
@@ -480,8 +443,9 @@ class FewShotNERFramework:
     def eval(self,
             model,
             eval_iter,
-            ckpt=None): 
-        '''
+            ckpt=None,
+            save_csv=None):
+        """
         model: a FewShotREModel instance
         B: Batch size
         N: Num of classes for each batch
@@ -490,7 +454,7 @@ class FewShotNERFramework:
         eval_iter: Num of iterations
         ckpt: Checkpoint path. Set as None if using current model parameters.
         return: Accuracy
-        '''
+        """
         print("")
         
         model.eval()
@@ -519,49 +483,189 @@ class FewShotNERFramework:
         outer_cnt = 0 # span correct but of wrong coarse-grained type
         total_span_cnt = 0 # span correct
 
+        type_stats = None
+        if save_csv is not None:
+            from collections import defaultdict
+            type_stats = defaultdict(lambda: {
+                'pred_cnt': 0,
+                'label_cnt': 0,
+                'correct_cnt': 0,
+                'fp_cnt': 0,
+                'fn_cnt': 0,
+                'within_cnt': 0,
+                'outer_cnt': 0,
+                'support': 0,
+                'query_cnt': 0
+            })
+
+            def process_episode(pred_tags, label_tags, support_tags):
+                pred_span = model.__get_class_span_dict__(pred_tags, is_string=True)
+                label_span = model.__get_class_span_dict__(label_tags, is_string=True)
+                support_span = model.__get_class_span_dict__(support_tags, is_string=True)
+                for lab in set(list(pred_span.keys()) + list(label_span.keys())):
+                    if lab == 'O':
+                        continue
+                    p_cnt = len(pred_span.get(lab, []))
+                    l_cnt = len(label_span.get(lab, []))
+                    corr = len(list(set(label_span.get(lab, [])).intersection(set(pred_span.get(lab, [])))))
+                    within = 0
+                    outer = 0
+                    for lbl_span in label_span.get(lab, []):
+                        for pred_label, pred_spans in pred_span.items():
+                            inter = len(list(set([lbl_span]).intersection(set(pred_spans))))
+                            if inter == 0 or pred_label == lab:
+                                continue
+                            if pred_label.split('-')[0] == lab.split('-')[0]:
+                                within += inter
+                            else:
+                                outer += inter
+                    s = type_stats[lab]
+                    s['pred_cnt'] += p_cnt
+                    s['label_cnt'] += l_cnt
+                    s['correct_cnt'] += corr
+                    s['fp_cnt'] += (p_cnt - corr)
+                    s['fn_cnt'] += (l_cnt - corr)
+                    s['within_cnt'] += within
+                    s['outer_cnt'] += outer
+                    s['support'] += len(support_span.get(lab, []))
+                    s['query_cnt'] += l_cnt  # count gold (query) spans for this type
+
         eval_iter = min(eval_iter, len(eval_dataset))
 
         with torch.no_grad():
             it = 0
-            while it + 1 < eval_iter:
-                for _, (support, query) in enumerate(eval_dataset):
-                    label = torch.cat(query['label'], 0)
-                    if torch.cuda.is_available():
-                        for k in support:
-                            if k != 'label' and k != 'sentence_num':
-                                support[k] = support[k].cuda()
-                                query[k] = query[k].cuda()
-                        label = label.cuda()
-                    logits, pred = model(support, query)
-                    if self.viterbi:
-                        pred = self.viterbi_decode(logits, query['label'])
+            for _, (support, query) in enumerate(eval_dataset):
+                if it >= eval_iter:
+                    break
+                label = torch.cat(query['label'], 0)
+                if torch.cuda.is_available():
+                    for k in support:
+                        if k != 'label' and k != 'sentence_num':
+                            support[k] = support[k].cuda()
+                            query[k] = query[k].cuda()
+                    label = label.cuda()
+                logits, pred = model(support, query)
+                if self.viterbi:
+                    pred = self.viterbi_decode(logits, query['label'])
 
-                    tmp_pred_cnt, tmp_label_cnt, correct = model.metrics_by_entity(pred, label)
-                    fp, fn, token_cnt, within, outer, total_span = model.error_analysis(pred, label, query)
-                    pred_cnt += tmp_pred_cnt
-                    label_cnt += tmp_label_cnt
-                    correct_cnt += correct
+                if type_stats is not None:
+                    pred_cpu = pred.detach().cpu().tolist()
+                    current_sent_idx = 0
+                    current_token_idx = 0
+                    cur_supp_sent_idx = 0
+                    for idx, num in enumerate(query['sentence_num']):
+                        true_label = torch.cat(query['label'][current_sent_idx:current_sent_idx+num], 0)
+                        true_label = true_label[true_label != model.ignore_index]
+                        true_label = true_label.cpu().numpy().tolist()
+                        set_token_length = len(true_label)
+                        pred_tags = [query['label2tag'][idx][int(lab)] for lab in pred_cpu[current_token_idx:current_token_idx + set_token_length]]
+                        label_tags = [query['label2tag'][idx][int(lab)] for lab in true_label]
+                        supp_num = support['sentence_num'][idx]
+                        supp_labels = torch.cat(support['label'][cur_supp_sent_idx:cur_supp_sent_idx+supp_num], 0)
+                        supp_labels = supp_labels[supp_labels != model.ignore_index]
+                        supp_labels = supp_labels.cpu().numpy().tolist()
+                        support_tags = [query['label2tag'][idx][int(lab)] for lab in supp_labels]
+                        process_episode(pred_tags, label_tags, support_tags)
 
-                    fn_cnt += self.item(fn.data)
-                    fp_cnt += self.item(fp.data)
-                    total_token_cnt += token_cnt
-                    outer_cnt += outer
-                    within_cnt += within
-                    total_span_cnt += total_span
+                        current_sent_idx += num
+                        current_token_idx += set_token_length
+                        cur_supp_sent_idx += supp_num
 
-                    if it + 1 == eval_iter:
-                        break
-                    it += 1
+                tmp_pred_cnt, tmp_label_cnt, correct = model.metrics_by_entity(pred, label)
+                fp, fn, token_cnt, within, outer, total_span = model.error_analysis(pred, label, query)
+                pred_cnt += tmp_pred_cnt
+                label_cnt += tmp_label_cnt
+                correct_cnt += correct
+
+                fn_cnt += self.item(fn.data)
+                fp_cnt += self.item(fp.data)
+                total_token_cnt += token_cnt
+                outer_cnt += outer
+                within_cnt += within
+                total_span_cnt += total_span
+                it += 1
 
             epsilon = 1e-6
             precision = correct_cnt / (pred_cnt + epsilon)
             recall = correct_cnt / (label_cnt + epsilon)
             f1 = 2 * precision * recall / (precision + recall + epsilon)
-            fp_error = fp_cnt / total_token_cnt
-            fn_error = fn_cnt / total_token_cnt
+            fp_error = fp_cnt / (total_token_cnt + epsilon)
+            fn_error = fn_cnt / (total_token_cnt + epsilon)
             within_error = within_cnt / (total_span_cnt + epsilon)
             outer_error = outer_cnt / (total_span_cnt + epsilon)
             sys.stdout.write('[EVAL] step: {0:4} | [ENTITY] precision: {1:3.4f}, recall: {2:3.4f}, f1: {3:3.4f}'.format(it + 1, precision, recall, f1) + '\r')
             sys.stdout.flush()
             print("")
+        if save_csv is not None and type_stats is not None:
+            import csv
+
+            rows = [{
+                'type': 'overall',
+                'precision': precision,
+                'recall': recall,
+                'f1': f1,
+                'fp_cnt': int(fp_cnt),
+                'fn_cnt': int(fn_cnt),
+                'within_error': within_error,
+                'outer_error': outer_error,
+                'support': '',
+                'query_cnt': ''
+            }]
+
+            coarse_stats = {}
+            for lab, s in type_stats.items():
+                coarse = lab.split('-')[0]
+                if coarse not in coarse_stats:
+                    coarse_stats[coarse] = {k: 0 for k in ['pred_cnt','label_cnt','correct_cnt','fp_cnt','fn_cnt','within_cnt','outer_cnt','support','query_cnt']}
+                for k in coarse_stats[coarse]:
+                    coarse_stats[coarse][k] += s[k]
+
+            for coarse, cs in sorted(coarse_stats.items()):
+                p_cnt = cs['pred_cnt']
+                l_cnt = cs['label_cnt']
+                corr = cs['correct_cnt']
+                prec = corr / (p_cnt + 1e-8)
+                rec = corr / (l_cnt + 1e-8)
+                rows.append({
+                    'type': coarse,
+                    'precision': prec,
+                    'recall': rec,
+                    'f1': 2 * prec * rec / (prec + rec + 1e-8),
+                    'fp_cnt': int(cs['fp_cnt']),
+                    'fn_cnt': int(cs['fn_cnt']),
+                    'within_error': cs['within_cnt'] / (l_cnt + 1e-8),
+                    'outer_error': cs['outer_cnt'] / (l_cnt + 1e-8),
+                    'support': int(cs['support']),
+                    'query_cnt': int(cs['query_cnt'])
+                })
+
+            for lab, s in sorted(type_stats.items()):
+                p_cnt = s['pred_cnt']
+                l_cnt = s['label_cnt']
+                corr = s['correct_cnt']
+                prec = corr / (p_cnt + 1e-8)
+                rec = corr / (l_cnt + 1e-8)
+                rows.append({
+                    'type': lab,
+                    'precision': prec,
+                    'recall': rec,
+                    'f1': 2 * prec * rec / (prec + rec + 1e-8),
+                    'fp_cnt': int(s['fp_cnt']),
+                    'fn_cnt': int(s['fn_cnt']),
+                    'within_error': s['within_cnt'] / (l_cnt + 1e-8),
+                    'outer_error': s['outer_cnt'] / (l_cnt + 1e-8),
+                    'support': int(s['support']),
+                    'query_cnt': int(s['query_cnt'])
+                })
+
+            fieldnames = ['type','precision','recall','f1','fp_cnt','fn_cnt','within_error','outer_error','support','query_cnt']
+            try:
+                with open(save_csv, 'w', newline='') as csvfile:
+                    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                    writer.writeheader()
+                    writer.writerows(rows)
+                print(f"Saved metrics CSV to {save_csv}")
+            except Exception as e:
+                print(f"Failed to write metrics CSV {save_csv}: {e}")
+
         return precision, recall, f1, fp_error, fn_error, within_error, outer_error

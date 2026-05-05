@@ -11,6 +11,45 @@ bash data/download.sh inter
 ### Test run
 python3 train_demo.py --mode inter --lr 1e-4 --batch_size 8 --trainN 5 --N 5 --K 1 --Q 1 --train_iter 100 --val_iter 50 --test_iter 100 --val_step 100 --max_length 64 --model proto
 
+### ProtoLlama (Phase 3+)
+
+#### BERT Baseline (reference)
+```shell
+python3 train_demo.py --mode inter --encoder_family bert \
+  --lr 1e-4 --batch_size 8 --trainN 5 --N 5 --K 1 --Q 1 \
+  --train_iter 600 --val_iter 100 --test_iter 500 --val_step 20 \
+  --max_length 64 --model proto
+```
+
+#### ProtoLlama with LoRA on A100
+```shell
+python3 train_demo.py --mode inter --encoder_family llama \
+  --encoder_name meta-llama/Llama-3.1-8B \
+  --use_lora --lora_r 16 --lora_alpha 32 --lora_dropout 0.05 \
+  --use_bf16 --gradient_checkpointing \
+  --lr 1e-4 --batch_size 8 --trainN 5 --N 5 --K 1 --Q 1 \
+  --train_iter 600 --val_iter 100 --test_iter 500 --val_step 20 \
+  --max_length 64 --model proto
+```
+
+#### ProtoLlama Fine-tuning (no LoRA, requires more memory)
+```shell
+python3 train_demo.py --mode inter --encoder_family llama \
+  --encoder_name meta-llama/Llama-3.1-8B \
+  --use_bf16 --gradient_checkpointing \
+  --lr 1e-5 --batch_size 4 --trainN 5 --N 5 --K 1 --Q 1 \
+  --train_iter 600 --val_iter 100 --test_iter 500 --val_step 20 \
+  --max_length 64 --model proto
+```
+
+#### Test-only (load checkpoint)
+```shell
+python3 train_demo.py --mode inter --encoder_family llama \
+  --encoder_name meta-llama/Llama-3.1-8B \
+  --use_lora --load_ckpt checkpoint/proto-inter-5-1-seed0.pth.tar \
+  --only_test --test_iter 500 --max_length 64 --model proto
+```
+
 ### Model args
 ```shell
 -- mode                 training mode, must be inter, intra, or supervised
@@ -33,4 +72,18 @@ python3 train_demo.py --mode inter --lr 1e-4 --batch_size 8 --trainN 5 --N 5 --K
 -- only_test            no training process, only test
 -- ckpt_name            checkpoint name
 -- seed                 random seed
+
+-- encoder_family       bert or llama (default: bert)
+-- encoder_name         HF model id for encoder (e.g. meta-llama/Llama-3.1-8B)
+-- tokenizer_name       HF tokenizer id (defaults to encoder_name)
+-- use_lora             Enable LoRA adapters for encoder (Llama recommended)
+-- lora_r               LoRA rank (default: 16)
+-- lora_alpha           LoRA alpha scaling (default: 32)
+-- lora_dropout         LoRA dropout (default: 0.05)
+-- lora_target_modules  Comma-separated LoRA targets (default: q_proj,k_proj,v_proj,o_proj)
+-- use_bf16             Use bfloat16 precision (A100 / newer GPUs)
+-- use_8bit             Use 8-bit quantization (requires bitsandbytes)
+-- use_4bit             Use 4-bit quantization (requires bitsandbytes)
+-- gradient_checkpointing   Enable gradient checkpointing (saves memory, slower)
+-- debug_alignment      Print token-label alignment diagnostics (first 5 episodes)
 ```
