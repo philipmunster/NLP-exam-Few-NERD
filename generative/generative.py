@@ -22,9 +22,9 @@ k_list = [1, 5]
 seed_list = range(1, 501)
 test_size = 5
 
-for n in n_list:
-    for k in k_list:
-        for seed in seed_list:
+for seed in seed_list:
+    for n in n_list:
+        for k in k_list:
 
             print(f"Iteration using n = {n}, k = {k}, seed = {seed}")
 
