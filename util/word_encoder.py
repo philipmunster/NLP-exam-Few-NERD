@@ -30,7 +30,7 @@ def apply_lora_to_model(model, lora_r=16, lora_alpha=32, lora_dropout=0.05, lora
         target_modules=lora_target_modules,
         lora_dropout=lora_dropout,
         bias=lora_bias,
-        task_type='CAUSAL_LM'
+        task_type='FEATURE_EXTRACTION'
     )
     model = get_peft_model(model, lora_config)
     print(f"[INFO] Applied LoRA to model: r={lora_r}, alpha={lora_alpha}, dropout={lora_dropout}")
