@@ -1,308 +1,282 @@
 import ast
 import sys
-import pandas as pd
+import json
 from collections import defaultdict
- 
- 
-# =============================================================================
-# Step 1 — Alignment: find the gold sentence that matches the model output
-# =============================================================================
- 
-def find_matching_gold_sentence(pred_tokens: list[str], gold_sentences: list[dict]) -> int:
-    """
-    The gold standard contains all sentences (support examples + query).
-    The model only labels the query sentence.
-    We find the gold sentence that best matches the model output by counting
-    how many tokens at the start of both sequences agree (prefix match).
- 
-    Returns the index of the best-matching sentence in gold_sentences.
-    """
-    best_idx, best_score = 0, -1
-    for j, sent in enumerate(gold_sentences):
+import pandas as pd
+
+
+def extract_spans(labels):
+    spans = set()
+    i = 0
+    while i < len(labels): 
+        label = labels[i]
+
+        if label == "O":
+            i += 1
+            continue
+
+        start = i
+        i += 1
+
+        # Extend span while the same type continues
+        while i < len(labels) and labels[i] == label:
+            i += 1
+
+        spans.add((start, i, label))
+
+    return spans
+
+def find_sequence(pred_tokens, gold_tokens):
+    if not gold_tokens:
+        return -1
+
+    anchor    = gold_tokens[0]
+    match_len = min(3, len(gold_tokens))
+
+    for i, tok in enumerate(pred_tokens):
+        if tok == anchor:
+            if pred_tokens[i: i + match_len] == gold_tokens[:match_len]:
+                return i
+
+    return -1
+
+
+def align_predictions_to_gold(pred_items, gold_sentences):
+
+    pred_tokens = [d["token"] for d in pred_items]
+    pred_labels = [d["label"] for d in pred_items]
+
+    all_pred = []
+    all_gold = []
+
+    for sent in gold_sentences:
         gold_tokens = sent["sentence"].split()
-        # Count matching tokens from the start (prefix overlap)
-        score = sum(1 for p, g in zip(pred_tokens, gold_tokens) if p == g)
-        if score > best_score:
-            best_score = score
-            best_idx = j
-    return best_idx
- 
- 
-def align_prediction_to_gold(jf: list[dict], gold_sentences: list[dict]) -> tuple[list, list]:
-    """
-    Given a list of predicted {"token", "label"} dicts and the full list of
-    gold sentences, returns two aligned lists:
-        pred_labels : labels predicted by the model
-        true_labels : corresponding gold labels
- 
-    Alignment is truncated to the shorter of the two sequences.
-    """
-    pred_tokens = [d["token"] for d in jf]
-    best_idx    = find_matching_gold_sentence(pred_tokens, gold_sentences)
- 
-    gold_sent   = gold_sentences[best_idx]
-    gold_labels = gold_sent["labels"]
- 
-    n           = min(len(jf), len(gold_labels))
-    pred_labels = [d["label"] for d in jf[:n]]
-    true_labels = gold_labels[:n]
- 
-    return pred_labels, true_labels
- 
- 
-# =============================================================================
-# Step 2 — Token-level metrics for one row
-# =============================================================================
- 
-def row_metrics(pred_labels: list[str], true_labels: list[str]) -> dict:
-    """
-    Compute token-level metrics for a single row.
- 
-    Returns a dict with:
-        accuracy        overall token accuracy (including O tokens)
-        macro_f1        unweighted average F1 across all non-O labels present
-        weighted_f1     support-weighted average F1
-        per_label       dict of {label: {precision, recall, f1, support}}
-        n_tokens        number of aligned tokens
-        n_pred_entities number of tokens the model predicted as non-O
-        n_true_entities number of tokens that are truly non-O
-    """
-    assert len(pred_labels) == len(true_labels), "Lists must be same length"
- 
-    # Collect all non-O labels that appear in either prediction or gold
-    all_entity_labels = set(true_labels) | set(pred_labels)
-    all_entity_labels.discard("O")
- 
-    per_label = {}
-    for lbl in all_entity_labels:
-        tp = sum(1 for p, t in zip(pred_labels, true_labels) if p == lbl and t == lbl)
-        fp = sum(1 for p, t in zip(pred_labels, true_labels) if p == lbl and t != lbl)
-        fn = sum(1 for p, t in zip(pred_labels, true_labels) if p != lbl and t == lbl)
- 
-        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-        recall    = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-        f1        = (2 * precision * recall / (precision + recall)
-                     if (precision + recall) > 0 else 0.0)
-        support   = tp + fn  # total true positives for this label in gold
- 
-        per_label[lbl] = {
-            "precision": precision,
-            "recall":    recall,
-            "f1":        f1,
-            "support":   support,
-        }
- 
-    # Macro F1: simple average across labels (ignores class imbalance)
-    macro_f1 = (sum(v["f1"] for v in per_label.values()) / len(per_label)
-                if per_label else 0.0)
- 
-    # Weighted F1: each label's F1 weighted by how often it appears in gold
-    total_support = sum(v["support"] for v in per_label.values())
-    weighted_f1   = (sum(v["f1"] * v["support"] for v in per_label.values()) / total_support
-                     if total_support > 0 else 0.0)
- 
-    # Token accuracy (including O — useful for overall correctness)
-    accuracy = (sum(1 for p, t in zip(pred_labels, true_labels) if p == t)
-                / len(true_labels))
- 
-    return {
-        "accuracy":         accuracy,
-        "macro_f1":         macro_f1,
-        "weighted_f1":      weighted_f1,
-        "per_label":        per_label,
-        "n_tokens":         len(true_labels),
-        "n_pred_entities":  sum(1 for p in pred_labels if p != "O"),
-        "n_true_entities":  sum(1 for t in true_labels if t != "O"),
-    }
- 
- 
-# =============================================================================
-# Step 3 — Aggregate metrics across all rows
-# =============================================================================
- 
-def aggregate_metrics(rows: list[dict]) -> dict:
-    """
-    Given a list of row_metrics dicts, compute corpus-level aggregates:
-        mean_accuracy, mean_macro_f1, mean_weighted_f1
-        micro_f1      (pool all TPs/FPs/FNs across rows and labels)
-        per_label     pooled per-label stats across all rows
-    """
-    if not rows:
-        return {}
- 
-    # Simple means
-    mean_accuracy    = sum(r["accuracy"]    for r in rows) / len(rows)
-    mean_macro_f1    = sum(r["macro_f1"]    for r in rows) / len(rows)
-    mean_weighted_f1 = sum(r["weighted_f1"] for r in rows) / len(rows)
- 
-    # Pool per-label counts for micro metrics
-    pooled = defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0})
-    for r in rows:
-        for lbl, stats in r["per_label"].items():
-            # Reconstruct tp/fp/fn from precision/recall/support
-            support = stats["support"]          # = tp + fn
-            prec    = stats["precision"]
-            rec     = stats["recall"]
-            # tp = recall * support
-            tp = round(rec * support)
-            fn = support - tp
-            fp = round(tp / prec - tp) if prec > 0 else 0
-            pooled[lbl]["tp"] += tp
-            pooled[lbl]["fp"] += fp
-            pooled[lbl]["fn"] += fn
- 
-    per_label_agg = {}
+        gold_lbls   = sent["labels"]
+        n_gold      = len(gold_tokens)
+
+        start = find_sequence(pred_tokens, gold_tokens)
+
+        if start == -1:
+            # Sentence not found in predictions — all its entities are FN
+            all_pred.extend(["O"] * n_gold)
+            all_gold.extend(gold_lbls)
+        else:
+            # Extract the predicted labels for this sentence's token range
+            n = min(n_gold, len(pred_tokens) - start)
+            all_pred.extend(pred_labels[start: start + n])
+            all_gold.extend(gold_lbls[:n])
+
+            # If model produced fewer tokens than gold, pad the rest with O
+            if n < n_gold:
+                all_pred.extend(["O"] * (n_gold - n))
+                all_gold.extend(gold_lbls[n:])
+
+    return all_pred, all_gold
+
+
+def span_counts(pred_labels, gold_labels):
+
+    gold_spans = extract_spans(gold_labels)
+    pred_spans = extract_spans(pred_labels)
+
+    tp = len(gold_spans & pred_spans)
+    fp = len(pred_spans - gold_spans)
+    fn = len(gold_spans - pred_spans)
+
+    return tp, fp, fn
+
+
+def compute_prf(tp, fp, fn):
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall    = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    f1        = (2 * precision * recall / (precision + recall)
+                 if (precision + recall) > 0 else 0.0)
+    return round(precision, 4), round(recall, 4), round(f1, 4)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AGGREGATE METRICS ACROSS ROWS
+# ─────────────────────────────────────────────────────────────────────────────
+
+def aggregate(rows):
+
     total_tp = total_fp = total_fn = 0
-    for lbl, counts in pooled.items():
-        tp, fp, fn = counts["tp"], counts["fp"], counts["fn"]
-        prec = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-        rec  = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-        f1   = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0.0
-        per_label_agg[lbl] = {
-            "precision": prec, "recall": rec, "f1": f1,
-            "support": tp + fn,
+    per_type = defaultdict(lambda: [0, 0, 0])  # [tp, fp, fn]
+
+    for row in rows:
+        total_tp += row["tp"]
+        total_fp += row["fp"]
+        total_fn += row["fn"]
+        for lbl, (tp, fp, fn) in row["per_type"].items():
+            per_type[lbl][0] += tp
+            per_type[lbl][1] += fp
+            per_type[lbl][2] += fn
+
+    p, r, f1 = compute_prf(total_tp, total_fp, total_fn)
+
+    # Per-type breakdown — exclude zero-support labels from macro F1
+    per_type_metrics = {}
+    macro_f1_values  = []
+    for lbl, (tp, fp, fn) in per_type.items():
+        lp, lr, lf = compute_prf(tp, fp, fn)
+        support = tp + fn
+        per_type_metrics[lbl] = {
+            "precision": lp, "recall": lr, "f1": lf, "support": support
         }
-        total_tp += tp
-        total_fp += fp
-        total_fn += fn
- 
-    # Micro F1: computed from pooled TP/FP/FN (treats every token equally)
-    micro_prec = total_tp / (total_tp + total_fp) if (total_tp + total_fp) > 0 else 0.0
-    micro_rec  = total_tp / (total_tp + total_fn) if (total_tp + total_fn) > 0 else 0.0
-    micro_f1   = (2 * micro_prec * micro_rec / (micro_prec + micro_rec)
-                  if (micro_prec + micro_rec) > 0 else 0.0)
- 
+        if support > 0:
+            macro_f1_values.append(lf)
+
+    macro_f1 = (sum(macro_f1_values) / len(macro_f1_values)
+                if macro_f1_values else 0.0)
+
     return {
-        "n_rows":           len(rows),
-        "mean_accuracy":    mean_accuracy,
-        "mean_macro_f1":    mean_macro_f1,
-        "mean_weighted_f1": mean_weighted_f1,
-        "micro_f1":         micro_f1,
-        "per_label":        per_label_agg,
+        "n_rows":   len(rows),
+        "micro_f1": f1,
+        "precision": p,
+        "recall":   r,
+        "macro_f1": round(macro_f1, 4),
+        "total_tp": total_tp,
+        "total_fp": total_fp,
+        "total_fn": total_fn,
+        "per_type": per_type_metrics,
     }
- 
- 
-# =============================================================================
-# Step 4 — Main function: run everything
-# =============================================================================
- 
-def evaluate(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Main evaluation function.
- 
-    For each row in df that has a non-null json_format:
-      1. Parse both json_format and gold_standard
-      2. Align prediction to the matching gold sentence
-      3. Compute row-level metrics
- 
-    Returns df with new columns added:
-        accuracy, macro_f1, weighted_f1, n_tokens,
-        n_pred_entities, n_true_entities, skip_reason
-    """
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EVALUATE ALL ROWS
+# ─────────────────────────────────────────────────────────────────────────────
+
+def evaluate(df):
     results = []
- 
+
     for i, row in df.iterrows():
-        # --- Skip rows where the model failed to produce valid NER ---
+
         if pd.isna(row["json_format"]):
             results.append({
-                "accuracy": None, "macro_f1": None, "weighted_f1": None,
-                "n_tokens": None, "n_pred_entities": None, "n_true_entities": None,
-                "skip_reason": "parse_failed",
+                "row":         i,
+                "skipped":     True,
+                "skip_reason": "json_format is null — model parse failed",
             })
             continue
- 
+
         try:
-            jf             = ast.literal_eval(row["json_format"])
+            pred_items     = ast.literal_eval(row["json_format"])
             gold_sentences = ast.literal_eval(row["gold_standard"])[0]
- 
-            pred_labels, true_labels = align_prediction_to_gold(jf, gold_sentences)
-            metrics = row_metrics(pred_labels, true_labels)
- 
+
+            pred_labels, gold_labels = align_predictions_to_gold(
+                pred_items, gold_sentences
+            )
+
+            tp, fp, fn = span_counts(pred_labels, gold_labels)
+
+            # Per-type TP/FP/FN for this row
+            gold_spans   = extract_spans(gold_labels)
+            pred_spans   = extract_spans(pred_labels)
+            row_per_type = defaultdict(lambda: [0, 0, 0])
+            for span in gold_spans & pred_spans:
+                row_per_type[span[2]][0] += 1   # tp
+            for span in pred_spans - gold_spans:
+                row_per_type[span[2]][1] += 1   # fp
+            for span in gold_spans - pred_spans:
+                row_per_type[span[2]][2] += 1   # fn
+
             results.append({
-                "accuracy":         round(metrics["accuracy"],    4),
-                "macro_f1":         round(metrics["macro_f1"],    4),
-                "weighted_f1":      round(metrics["weighted_f1"], 4),
-                "n_tokens":         metrics["n_tokens"],
-                "n_pred_entities":  metrics["n_pred_entities"],
-                "n_true_entities":  metrics["n_true_entities"],
-                "skip_reason":      None,
+                "row":          i,
+                "skipped":      False,
+                "tp":           tp,
+                "fp":           fp,
+                "fn":           fn,
+                "per_type":     {k: tuple(v) for k, v in row_per_type.items()},
+                "n_gold_spans": len(gold_spans),
+                "n_pred_spans": len(pred_spans),
             })
- 
+
         except Exception as e:
             results.append({
-                "accuracy": None, "macro_f1": None, "weighted_f1": None,
-                "n_tokens": None, "n_pred_entities": None, "n_true_entities": None,
+                "row":         i,
+                "skipped":     True,
                 "skip_reason": f"error: {e}",
             })
- 
-    metrics_df = pd.DataFrame(results, index=df.index)
-    return pd.concat([df, metrics_df], axis=1)
- 
- 
-# =============================================================================
-# Printing helpers
-# =============================================================================
- 
-def print_aggregate(title: str, agg: dict) -> None:
-    print(f"\n{'='*60}")
-    print(f"  {title}  (n={agg['n_rows']} rows)")
-    print(f"{'='*60}")
-    print(f"  Token Accuracy    : {agg['mean_accuracy']:.3f}")
-    print(f"  Mean Macro F1     : {agg['mean_macro_f1']:.3f}")
-    print(f"  Mean Weighted F1  : {agg['mean_weighted_f1']:.3f}")
-    print(f"  Micro F1          : {agg['micro_f1']:.3f}")
-    print()
-    print(f"  {'Label':<35} {'Prec':>6} {'Rec':>6} {'F1':>6} {'Support':>8}")
-    print(f"  {'-'*35} {'-'*6} {'-'*6} {'-'*6} {'-'*8}")
-    for lbl, s in sorted(agg["per_label"].items(), key=lambda x: -x[1]["support"]):
-        print(f"  {lbl:<35} {s['precision']:>6.3f} {s['recall']:>6.3f} {s['f1']:>6.3f} {s['support']:>8}")
- 
- 
-# =============================================================================
-# CLI entry point
-# =============================================================================
- 
+
+    return results
+
+
+def print_results(title, agg, n_total, n_skipped):
+    skip_rate = n_skipped / n_total if n_total > 0 else 0.0
+
+    print(f"\n{'='*62}")
+    print(f"  {title}")
+    print(f"  Rows: {agg['n_rows']} evaluated, {n_skipped} skipped "
+          f"({skip_rate:.0%} skip rate)")
+    print(f"{'='*62}")
+    print(f"  Micro F1    : {agg['micro_f1']:.4f}")
+    print(f"  Precision   : {agg['precision']:.4f}")
+    print(f"  Recall      : {agg['recall']:.4f}")
+    print(f"  Macro F1    : {agg['macro_f1']:.4f}  "
+          f"(over labels with support > 0 only)")
+    print(f"  TP / FP / FN: {agg['total_tp']} / "
+          f"{agg['total_fp']} / {agg['total_fn']}")
+
+    if agg["per_type"]:
+        print()
+        print(f"  {'Label':<35} {'F1':>6} {'P':>6} {'R':>6} {'Support':>8}")
+        print(f"  {'-'*35} {'-'*6} {'-'*6} {'-'*6} {'-'*8}")
+        for lbl, s in sorted(
+            agg["per_type"].items(),
+            key=lambda x: -x[1]["support"]
+        ):
+            if s["support"] == 0:
+                continue
+            print(f"  {lbl:<35} {s['f1']:>6.3f} {s['precision']:>6.3f} "
+                  f"{s['recall']:>6.3f} {s['support']:>8}")
+
+
 if __name__ == "__main__":
     path     = sys.argv[1] if len(sys.argv) > 1 else "ner_results_with_json.csv"
-    out_path = path.replace(".csv", "_metrics.csv")
- 
-    # --- Load and evaluate ---
-    df     = pd.read_csv(path)
-    df_out = evaluate(df)
- 
-    # --- Row-level summary ---
-    evaluated = df_out[df_out["skip_reason"].isna()]
-    skipped   = df_out[df_out["skip_reason"].notna()]
-    print(f"\nTotal rows     : {len(df_out)}")
-    print(f"Evaluated      : {len(evaluated)}")
-    print(f"Skipped (None) : {len(skipped)}")
- 
-    # --- Overall aggregate ---
-    # Rebuild row_metrics dicts for aggregation
-    all_row_metrics = []
-    for i, row in evaluated.iterrows():
-        jf             = ast.literal_eval(row["json_format"])
-        gold_sentences = ast.literal_eval(row["gold_standard"])[0]
-        pred_labels, true_labels = align_prediction_to_gold(jf, gold_sentences)
-        all_row_metrics.append(row_metrics(pred_labels, true_labels))
- 
-    overall_agg = aggregate_metrics(all_row_metrics)
-    print_aggregate("OVERALL", overall_agg)
- 
-    # --- By prompt_type ---
-    for pt, group in df_out.groupby("prompt_type"):
-        group_eval = group[group["skip_reason"].isna()]
-        if group_eval.empty:
+    out_path = path.replace(".csv", "_metrics.json")
+
+    df = pd.read_csv(path)
+    print(f"\nLoaded {len(df)} rows from {path}")
+
+    all_results = evaluate(df)
+
+    evaluated = [r for r in all_results if not r["skipped"]]
+    skipped   = [r for r in all_results if r["skipped"]]
+
+    print(f"Evaluated: {len(evaluated)}  |  Skipped: {len(skipped)}")
+
+    # Overall
+    overall_agg = aggregate(evaluated)
+    print_results("OVERALL — Span-level Micro F1 (Few-NERD protocol)",
+                  overall_agg, len(df), len(skipped))
+
+    # Per prompt_type
+    for pt in df["prompt_type"].unique():
+        pt_indices = set(df[df["prompt_type"] == pt].index)
+        pt_results = [r for r in evaluated if r["row"] in pt_indices]
+        pt_skipped = [r for r in skipped   if r["row"] in pt_indices]
+
+        if not pt_results:
             continue
-        group_metrics = []
-        for i, row in group_eval.iterrows():
-            jf             = ast.literal_eval(row["json_format"])
-            gold_sentences = ast.literal_eval(row["gold_standard"])[0]
-            pred_labels, true_labels = align_prediction_to_gold(jf, gold_sentences)
-            group_metrics.append(row_metrics(pred_labels, true_labels))
-        agg = aggregate_metrics(group_metrics)
-        print_aggregate(pt, agg)
- 
-    # --- Save enriched CSV ---
-    df_out.to_csv(out_path, index=False)
+
+        pt_agg = aggregate(pt_results)
+        print_results(pt, pt_agg,
+                      n_total=len(pt_indices),
+                      n_skipped=len(pt_skipped))
+
+    # Save to JSON
+    output = {
+        "schema":    "IO — matching Few-NERD paper (Ding et al., ACL 2021)",
+        "averaging": "micro — TP/FP/FN pooled before computing P/R/F1",
+        "overall":   overall_agg,
+        "per_prompt_type": {},
+    }
+    for pt in df["prompt_type"].unique():
+        pt_indices = set(df[df["prompt_type"] == pt].index)
+        pt_results = [r for r in evaluated if r["row"] in pt_indices]
+        if pt_results:
+            output["per_prompt_type"][pt] = aggregate(pt_results)
+
+    with open(out_path, "w") as f:
+        json.dump(output, f, indent=2)
     print(f"\nSaved -> {out_path}")

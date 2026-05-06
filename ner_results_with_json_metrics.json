@@ -1,0 +1,636 @@
+{
+  "schema": "IO \u2014 matching Few-NERD paper (Ding et al., ACL 2021)",
+  "averaging": "micro \u2014 TP/FP/FN pooled before computing P/R/F1",
+  "overall": {
+    "n_rows": 59,
+    "micro_f1": 0.0863,
+    "precision": 0.1992,
+    "recall": 0.0551,
+    "macro_f1": 0.0866,
+    "total_tp": 47,
+    "total_fp": 189,
+    "total_fn": 806,
+    "per_type": {
+      "event-sportsevent": {
+        "precision": 0.2222,
+        "recall": 0.0247,
+        "f1": 0.0444,
+        "support": 81
+      },
+      "location-city": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "person-actor": {
+        "precision": 0.2973,
+        "recall": 0.234,
+        "f1": 0.2619,
+        "support": 47
+      },
+      "other-educationaldegree": {
+        "precision": 0.2,
+        "recall": 0.0161,
+        "f1": 0.0299,
+        "support": 62
+      },
+      "other-livingthing": {
+        "precision": 0.3636,
+        "recall": 0.0556,
+        "f1": 0.0964,
+        "support": 72
+      },
+      "location-bodiesofwater": {
+        "precision": 0.2,
+        "recall": 0.0408,
+        "f1": 0.0678,
+        "support": 49
+      },
+      "organization-politicalparty": {
+        "precision": 0.0238,
+        "recall": 0.0099,
+        "f1": 0.014,
+        "support": 101
+      },
+      "event-election": {
+        "precision": 0.0545,
+        "recall": 0.0405,
+        "f1": 0.0465,
+        "support": 74
+      },
+      "location-other": {
+        "precision": 0.3462,
+        "recall": 0.15,
+        "f1": 0.2093,
+        "support": 60
+      },
+      "art-music": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 45
+      },
+      "product-car": {
+        "precision": 0.3333,
+        "recall": 0.013,
+        "f1": 0.025,
+        "support": 77
+      },
+      "organization-government/governmentagency": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 12
+      },
+      "building-hospital": {
+        "precision": 0.5,
+        "recall": 0.0755,
+        "f1": 0.1311,
+        "support": 53
+      },
+      "product-weapon": {
+        "precision": 0.6,
+        "recall": 0.1935,
+        "f1": 0.2927,
+        "support": 31
+      },
+      "building-theater": {
+        "precision": 1.0,
+        "recall": 0.0571,
+        "f1": 0.1081,
+        "support": 35
+      },
+      "art-writtenart": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 22
+      },
+      "other-medical": {
+        "precision": 0.5,
+        "recall": 0.0312,
+        "f1": 0.0588,
+        "support": 32
+      },
+      "event-date": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "location-geopolitical": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "location-organization": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "person-athlete": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "person-person": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "location-location": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      }
+    }
+  },
+  "per_prompt_type": {
+    "json_no_constraints": {
+      "n_rows": 16,
+      "micro_f1": 0.0952,
+      "precision": 0.2222,
+      "recall": 0.0606,
+      "macro_f1": 0.0932,
+      "total_tp": 12,
+      "total_fp": 42,
+      "total_fn": 186,
+      "per_type": {
+        "event-sportsevent": {
+          "precision": 0.25,
+          "recall": 0.0476,
+          "f1": 0.08,
+          "support": 21
+        },
+        "location-city": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "person-actor": {
+          "precision": 0.25,
+          "recall": 0.2,
+          "f1": 0.2222,
+          "support": 10
+        },
+        "other-educationaldegree": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 16
+        },
+        "other-livingthing": {
+          "precision": 0.5,
+          "recall": 0.0556,
+          "f1": 0.1,
+          "support": 18
+        },
+        "location-bodiesofwater": {
+          "precision": 0.2,
+          "recall": 0.0769,
+          "f1": 0.1111,
+          "support": 13
+        },
+        "organization-politicalparty": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 22
+        },
+        "event-election": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 17
+        },
+        "location-other": {
+          "precision": 0.3333,
+          "recall": 0.1538,
+          "f1": 0.2105,
+          "support": 13
+        },
+        "art-music": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 12
+        },
+        "product-car": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 19
+        },
+        "organization-government/governmentagency": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 4
+        },
+        "building-hospital": {
+          "precision": 0.6667,
+          "recall": 0.1667,
+          "f1": 0.2667,
+          "support": 12
+        },
+        "product-weapon": {
+          "precision": 0.6,
+          "recall": 0.4286,
+          "f1": 0.5,
+          "support": 7
+        },
+        "building-theater": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 7
+        },
+        "art-writtenart": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 5
+        },
+        "other-medical": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 2
+        }
+      }
+    },
+    "colon_no_constraints": {
+      "n_rows": 17,
+      "micro_f1": 0.1253,
+      "precision": 0.2124,
+      "recall": 0.0889,
+      "macro_f1": 0.1257,
+      "total_tp": 24,
+      "total_fp": 89,
+      "total_fn": 246,
+      "per_type": {
+        "person-actor": {
+          "precision": 0.3333,
+          "recall": 0.5714,
+          "f1": 0.4211,
+          "support": 14
+        },
+        "other-livingthing": {
+          "precision": 0.5,
+          "recall": 0.125,
+          "f1": 0.2,
+          "support": 24
+        },
+        "other-educationaldegree": {
+          "precision": 0.5,
+          "recall": 0.0556,
+          "f1": 0.1,
+          "support": 18
+        },
+        "location-bodiesofwater": {
+          "precision": 0.2,
+          "recall": 0.0588,
+          "f1": 0.0909,
+          "support": 17
+        },
+        "event-sportsevent": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 26
+        },
+        "event-election": {
+          "precision": 0.0455,
+          "recall": 0.0455,
+          "f1": 0.0455,
+          "support": 22
+        },
+        "location-other": {
+          "precision": 0.2308,
+          "recall": 0.1875,
+          "f1": 0.2069,
+          "support": 16
+        },
+        "art-music": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 15
+        },
+        "organization-politicalparty": {
+          "precision": 0.0526,
+          "recall": 0.027,
+          "f1": 0.0357,
+          "support": 37
+        },
+        "product-car": {
+          "precision": 0.5,
+          "recall": 0.0385,
+          "f1": 0.0714,
+          "support": 26
+        },
+        "product-weapon": {
+          "precision": 0.5,
+          "recall": 0.0909,
+          "f1": 0.1538,
+          "support": 11
+        },
+        "building-hospital": {
+          "precision": 0.25,
+          "recall": 0.0625,
+          "f1": 0.1,
+          "support": 16
+        },
+        "other-medical": {
+          "precision": 0.5,
+          "recall": 0.1429,
+          "f1": 0.2222,
+          "support": 7
+        },
+        "building-theater": {
+          "precision": 1.0,
+          "recall": 0.2222,
+          "f1": 0.3636,
+          "support": 9
+        },
+        "art-writtenart": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 7
+        },
+        "organization-government/governmentagency": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 5
+        },
+        "event-date": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "location-geopolitical": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "location-organization": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        }
+      }
+    },
+    "json_with_constraints": {
+      "n_rows": 14,
+      "micro_f1": 0.0664,
+      "precision": 0.1944,
+      "recall": 0.04,
+      "macro_f1": 0.0709,
+      "total_tp": 7,
+      "total_fp": 29,
+      "total_fn": 168,
+      "per_type": {
+        "organization-politicalparty": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 21
+        },
+        "event-election": {
+          "precision": 0.0833,
+          "recall": 0.0588,
+          "f1": 0.069,
+          "support": 17
+        },
+        "art-music": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 9
+        },
+        "location-other": {
+          "precision": 0.6667,
+          "recall": 0.125,
+          "f1": 0.2105,
+          "support": 16
+        },
+        "product-car": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 18
+        },
+        "event-sportsevent": {
+          "precision": 0.5,
+          "recall": 0.0667,
+          "f1": 0.1176,
+          "support": 15
+        },
+        "location-city": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "person-actor": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 9
+        },
+        "other-medical": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 8
+        },
+        "other-educationaldegree": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 13
+        },
+        "other-livingthing": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 11
+        },
+        "building-hospital": {
+          "precision": 1.0,
+          "recall": 0.0909,
+          "f1": 0.1667,
+          "support": 11
+        },
+        "location-bodiesofwater": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 7
+        },
+        "building-theater": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 9
+        },
+        "art-writtenart": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 6
+        },
+        "product-weapon": {
+          "precision": 0.6667,
+          "recall": 0.5,
+          "f1": 0.5714,
+          "support": 4
+        },
+        "person-athlete": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "organization-government/governmentagency": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 1
+        }
+      }
+    },
+    "colon_with_constraints": {
+      "n_rows": 12,
+      "micro_f1": 0.0329,
+      "precision": 0.1212,
+      "recall": 0.019,
+      "macro_f1": 0.0251,
+      "total_tp": 4,
+      "total_fp": 29,
+      "total_fn": 206,
+      "per_type": {
+        "person-actor": {
+          "precision": 0.5,
+          "recall": 0.0714,
+          "f1": 0.125,
+          "support": 14
+        },
+        "other-educationaldegree": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 15
+        },
+        "other-livingthing": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 19
+        },
+        "location-bodiesofwater": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 12
+        },
+        "event-sportsevent": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 19
+        },
+        "organization-politicalparty": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 21
+        },
+        "event-election": {
+          "precision": 0.0833,
+          "recall": 0.0556,
+          "f1": 0.0667,
+          "support": 18
+        },
+        "location-other": {
+          "precision": 0.5,
+          "recall": 0.1333,
+          "f1": 0.2105,
+          "support": 15
+        },
+        "product-car": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 14
+        },
+        "art-music": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 9
+        },
+        "product-weapon": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 9
+        },
+        "building-hospital": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 14
+        },
+        "other-medical": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 15
+        },
+        "building-theater": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 10
+        },
+        "art-writtenart": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 4
+        },
+        "organization-government/governmentagency": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 2
+        },
+        "person-person": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "location-location": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        }
+      }
+    }
+  }
+}
