@@ -1,7 +1,7 @@
-from transformers import BertTokenizer
+from transformers import AutoTokenizer
 from util.data_loader import get_loader
 from util.framework import FewShotNERFramework
-from util.word_encoder import BERTWordEncoder
+from util.word_encoder import BERTWordEncoder, LlamaWordEncoder, PEFT_AVAILABLE
 from model.proto import Proto
 import sys
 import torch
@@ -20,8 +20,69 @@ def set_seed(seed):
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
 
+def resolve_encoder_and_tokenizer_args(opt):
+    # Keep backward compatibility with existing BERT commands.
+    if opt.encoder_family == 'bert':
+        encoder_name = opt.encoder_name or opt.pretrain_ckpt or 'bert-base-uncased'
+        tokenizer_name = opt.tokenizer_name or encoder_name
+    elif opt.encoder_family == 'llama':
+        encoder_name = opt.encoder_name or opt.pretrain_ckpt
+        if encoder_name is None:
+            raise ValueError(
+                "For --encoder_family llama, provide --encoder_name (or --pretrain_ckpt)."
+            )
+        tokenizer_name = opt.tokenizer_name or encoder_name
+    else:
+        raise ValueError(f"Unsupported encoder_family: {opt.encoder_family}")
+
+    if opt.use_lora and opt.encoder_family == 'bert':
+        print("Warning: --use_lora is scaffolded but not active for BERT.")
+
+    opt.encoder_name_resolved = encoder_name
+    opt.tokenizer_name_resolved = tokenizer_name
+    opt.lora_target_modules_list = [
+        x.strip() for x in opt.lora_target_modules.split(',') if x.strip()
+    ]
+    return opt
+
+
+def load_tokenizer(tokenizer_name):
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, use_fast=True)
+    if tokenizer.pad_token is None:
+        if tokenizer.eos_token is not None:
+            tokenizer.pad_token = tokenizer.eos_token
+        else:
+            tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+    tokenizer.padding_side = 'right'
+    return tokenizer
+
 def main():
     parser = argparse.ArgumentParser()
+
+    # encoder and tokenizer selection (Phase 1 scaffold)
+    parser.add_argument('--encoder_family', type=str, default='bert',
+          choices=['bert', 'llama'],
+          help='Encoder family. Phase 1 supports bert runtime; llama is scaffolded for upcoming phases.')
+    parser.add_argument('--encoder_name', type=str, default=None,
+          help='HF model id for encoder. If omitted, falls back to --pretrain_ckpt (or bert-base-uncased for bert).')
+    parser.add_argument('--tokenizer_name', type=str, default=None,
+          help='HF tokenizer id. If omitted, uses resolved encoder_name.')
+
+    # LoRA scaffold (Phase 1: args only, no runtime wiring yet)
+    parser.add_argument('--use_lora', action='store_true',
+          help='Enable LoRA config (runtime wiring comes in Phase 3).')
+    parser.add_argument('--lora_r', type=int, default=16,
+          help='LoRA rank.')
+    parser.add_argument('--lora_alpha', type=int, default=32,
+          help='LoRA alpha scaling.')
+    parser.add_argument('--lora_dropout', type=float, default=0.05,
+          help='LoRA dropout.')
+    parser.add_argument('--lora_target_modules', type=str, default='q_proj,k_proj,v_proj,o_proj',
+          help='Comma-separated target module names for LoRA.')
+    parser.add_argument('--lora_bias', type=str, default='none',
+          choices=['none', 'all', 'lora_only'],
+          help='Bias strategy for LoRA.')
+    
     parser.add_argument('--mode', default='inter',
             help='training mode, must be in [inter, intra]')
     parser.add_argument('--trainN', default=2, type=int,
@@ -46,6 +107,8 @@ def main():
             help='model name, must be proto, nnshot, or structshot')
     parser.add_argument('--max_length', default=100, type=int,
            help='max length')
+    parser.add_argument('--metrics_dir', type=str, default='metrics',
+        help='Directory to save per-run metrics CSVs.')
     parser.add_argument('--lr', default=1e-4, type=float,
            help='learning rate')
     parser.add_argument('--grad_iter', default=1, type=int,
@@ -66,7 +129,18 @@ def main():
            help='label index to ignore when calculating loss and metrics')
     parser.add_argument('--use_sampled_data', action='store_true',
            help='use released sampled data, the data should be stored at "data/episode-data/" ')
-
+    parser.add_argument('--debug_alignment', action='store_true',
+           help='Enable debug printing for token-label alignment checks (first 5 episodes only).')
+    
+    # Runtime efficiency flags (Phase 3)
+    parser.add_argument('--use_bf16', action='store_true',
+           help='Use bfloat16 mixed precision (requires GPU support).')
+    parser.add_argument('--use_8bit', action='store_true',
+           help='Use 8-bit quantization for encoder (requires bitsandbytes).')
+    parser.add_argument('--use_4bit', action='store_true',
+           help='Use 4-bit quantization for encoder (requires bitsandbytes).')
+    parser.add_argument('--gradient_checkpointing', action='store_true',
+           help='Enable gradient checkpointing to reduce memory usage (slower training).')
 
     # only for bert / roberta
     parser.add_argument('--pretrain_ckpt', default=None,
@@ -85,6 +159,20 @@ def main():
            help='use SGD instead of AdamW for BERT.')
 
     opt = parser.parse_args()
+    opt = resolve_encoder_and_tokenizer_args(opt)
+
+    if opt.encoder_family == 'llama' and (opt.use_4bit or opt.use_8bit):
+        raise NotImplementedError(
+            "--use_4bit/--use_8bit flags are parsed but quantized loading is not wired yet in this branch. "
+            "Run without these flags, or implement BitsAndBytesConfig-based loading first."
+        )
+
+    if opt.use_lora and not PEFT_AVAILABLE:
+        raise ImportError(
+            "--use_lora was requested but PEFT is not installed in the active environment. "
+            "Install with: pip install peft"
+        )
+
     trainN = opt.trainN
     N = opt.N
     K = opt.K
@@ -97,13 +185,41 @@ def main():
     print("model: {}".format(model_name))
     print("max_length: {}".format(max_length))
     print('mode: {}'.format(opt.mode))
+    print('encoder_family: {}'.format(opt.encoder_family))
+    print('encoder_name: {}'.format(opt.encoder_name_resolved))
+    print('tokenizer_name: {}'.format(opt.tokenizer_name_resolved))
+    print('use_lora: {}'.format(opt.use_lora))
+    if opt.use_lora:
+        print('lora_r: {}, lora_alpha: {}, lora_dropout: {}, lora_bias: {}, lora_targets: {}'.format(
+            opt.lora_r, opt.lora_alpha, opt.lora_dropout, opt.lora_bias, ','.join(opt.lora_target_modules_list)
+        ))
 
     set_seed(opt.seed)
     print('loading model and tokenizer...')
-    pretrain_ckpt = opt.pretrain_ckpt or 'bert-base-uncased'
-    word_encoder = BERTWordEncoder(
-            pretrain_ckpt)
-    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    if opt.encoder_family == 'bert':
+        pretrain_ckpt = opt.encoder_name_resolved
+        word_encoder = BERTWordEncoder(pretrain_ckpt)
+        tokenizer = load_tokenizer(opt.tokenizer_name_resolved)
+    elif opt.encoder_family == 'llama':
+        pretrain_ckpt = opt.encoder_name_resolved
+        lora_config = {
+            'lora_r': opt.lora_r,
+            'lora_alpha': opt.lora_alpha,
+            'lora_dropout': opt.lora_dropout,
+            'lora_target_modules': opt.lora_target_modules_list,
+            'lora_bias': opt.lora_bias
+        }
+        word_encoder = LlamaWordEncoder(pretrain_ckpt, use_lora=opt.use_lora, lora_config=lora_config)
+        tokenizer = load_tokenizer(opt.tokenizer_name_resolved)
+        
+        if opt.gradient_checkpointing:
+            word_encoder.model.gradient_checkpointing_enable()
+        
+        if opt.use_bf16:
+            print("[INFO] Using bfloat16 precision for Llama encoder")
+            word_encoder.model = word_encoder.model.to(torch.bfloat16)
+    else:
+        raise ValueError("Unsupported encoder_family: {}".format(opt.encoder_family))
 
     print('loading data...')
     if not opt.use_sampled_data:
@@ -124,11 +240,11 @@ def main():
         print("Warning: you are running few-shot learning methods on `supervised` dataset, if it is not expected, please change to `--mode inter` or `--mode intra`.")
 
     train_data_loader = get_loader(opt.train, tokenizer,
-            N=trainN, K=K, Q=Q, batch_size=batch_size, max_length=max_length, ignore_index=opt.ignore_index, use_sampled_data=opt.use_sampled_data)
+            N=trainN, K=K, Q=Q, batch_size=batch_size, max_length=max_length, ignore_index=opt.ignore_index, use_sampled_data=opt.use_sampled_data, debug_alignment=opt.debug_alignment)
     val_data_loader = get_loader(opt.dev, tokenizer,
-            N=N, K=K, Q=Q, batch_size=batch_size, max_length=max_length, ignore_index=opt.ignore_index, use_sampled_data=opt.use_sampled_data)
+            N=N, K=K, Q=Q, batch_size=batch_size, max_length=max_length, ignore_index=opt.ignore_index, use_sampled_data=opt.use_sampled_data, debug_alignment=opt.debug_alignment)
     test_data_loader = get_loader(opt.test, tokenizer,
-            N=N, K=K, Q=Q, batch_size=batch_size, max_length=max_length, ignore_index=opt.ignore_index, use_sampled_data=opt.use_sampled_data)
+            N=N, K=K, Q=Q, batch_size=batch_size, max_length=max_length, ignore_index=opt.ignore_index, use_sampled_data=opt.use_sampled_data, debug_alignment=opt.debug_alignment)
 
         
     prefix = '-'.join([model_name, opt.mode, str(N), str(K), 'seed'+str(opt.seed)])
@@ -177,7 +293,10 @@ def main():
             ckpt = 'none'
 
     # test
-    precision, recall, f1, fp, fn, within, outer = framework.eval(model, opt.test_iter, ckpt=ckpt)
+    if not os.path.exists(opt.metrics_dir):
+        os.makedirs(opt.metrics_dir, exist_ok=True)
+    metrics_csv = os.path.join(opt.metrics_dir, f"{prefix}.csv")
+    precision, recall, f1, fp, fn, within, outer = framework.eval(model, opt.test_iter, ckpt=ckpt, save_csv=metrics_csv)
     print("RESULT: precision: %.4f, recall: %.4f, f1:%.4f" % (precision, recall, f1))
     print('ERROR ANALYSIS: fp: %.4f, fn: %.4f, within:%.4f, outer: %.4f'%(fp, fn, within, outer))
 

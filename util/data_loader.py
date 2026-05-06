@@ -64,7 +64,7 @@ class FewShotNERDatasetWithRandomSampling(data.Dataset):
     """
     Fewshot NER Dataset. Specific epiodes are created randomly.
     """
-    def __init__(self, filepath, tokenizer, N, K, Q, max_length, ignore_label_id=-1):
+    def __init__(self, filepath, tokenizer, N, K, Q, max_length, ignore_label_id=-1, debug_alignment=False):
         if not os.path.exists(filepath):
             print("[ERROR] Data file does not exist!")
             assert(0)
@@ -77,6 +77,91 @@ class FewShotNERDatasetWithRandomSampling(data.Dataset):
         self.max_length = max_length
         self.sampler = FewshotSampler(N, K, Q, self.samples, classes=self.classes)
         self.ignore_label_id = ignore_label_id
+        self.pad_token_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else 0
+        self.debug_alignment = debug_alignment
+        self.alignment_check_count = 0
+
+    def __check_alignment__(self, tokens, labels, text_mask, episode_type='support'):
+        """
+        Verify that non-ignored labels align with real text tokens.
+        Optionally print diagnostics if debug_alignment is enabled.
+        
+        Note: Some tokens can have ignore_label_id (e.g., subword continuations),
+        so non_ignored_labels <= real_text_tokens is valid.
+        """
+        if len(labels) != len(tokens):
+            error_msg = f"[ALIGNMENT ERROR] episode_type={episode_type}, len(labels)={len(labels)} != len(tokens)={len(tokens)}"
+            print(error_msg)
+            raise AssertionError(error_msg)
+        
+        non_ignored_labels = sum(1 for l in labels if l != self.ignore_label_id)
+        real_text_count = int(text_mask.sum())
+        
+        if non_ignored_labels > real_text_count:
+            error_msg = f"[ALIGNMENT ERROR] episode_type={episode_type}, non_ignored_labels={non_ignored_labels} > real_text_tokens={real_text_count}"
+            print(error_msg)
+            raise AssertionError(error_msg)
+        
+        if self.debug_alignment and self.alignment_check_count < 5:
+            self.alignment_check_count += 1
+            print(f"[DEBUG ALIGNMENT] {episode_type}: tokens={len(tokens)}, labels={len(labels)}, non_ignored={non_ignored_labels}, real_text={real_text_count}, ignore_id={self.ignore_label_id}")
+
+    def __get_special_tokens_count__(self):
+        return self.tokenizer.num_special_tokens_to_add(pair=False)
+
+    def __split_tokens_and_labels__(self, tokens, labels):
+        max_content_length = self.max_length - self.__get_special_tokens_count__()
+        if max_content_length <= 0:
+            raise ValueError('max_length is too small for the tokenizer special tokens.')
+
+        tokens_list = []
+        labels_list = []
+        while len(tokens) > max_content_length:
+            tokens_list.append(tokens[:max_content_length])
+            tokens = tokens[max_content_length:]
+            labels_list.append(labels[:max_content_length])
+            labels = labels[max_content_length:]
+        if tokens:
+            tokens_list.append(tokens)
+            labels_list.append(labels)
+        return tokens_list, labels_list
+
+    def __build_tokenizer_sequence__(self, tokens, labels):
+        # Determine special tokens for this tokenizer (BERT vs Llama vs others)
+        if hasattr(self.tokenizer, 'cls_token') and self.tokenizer.cls_token is not None:
+            # BERT-style tokenizer: add [CLS] and [SEP]
+            tokens_with_special = [self.tokenizer.cls_token] + tokens + [self.tokenizer.sep_token]
+            num_special_before = 1
+            num_special_after = 1
+        else:
+            # Llama-style or other (no special start/end tokens)
+            tokens_with_special = tokens
+            num_special_before = 0
+            num_special_after = 0
+        
+        # Convert tokens to IDs without re-tokenizing
+        indexed_tokens = self.tokenizer.convert_tokens_to_ids(tokens_with_special)
+        
+        # Pad to max_length
+        padding_length = self.max_length - len(indexed_tokens)
+        if padding_length < 0:
+            raise ValueError('Tokenized sequence is longer than max_length after adding special tokens.')
+        
+        indexed_tokens += [self.pad_token_id] * padding_length
+        
+        # Build attention mask (1 for real tokens, 0 for padding)
+        attention_mask = [1] * (len(indexed_tokens) - padding_length) + [0] * padding_length
+        
+        # Build text mask (1 for real text tokens only, 0 for special tokens and padding)
+        text_mask = [0] * num_special_before + [1] * len(tokens) + [0] * num_special_after + [0] * padding_length
+        
+        mask = np.array(attention_mask, dtype=np.int32)
+        text_mask = np.array(text_mask, dtype=np.int32)
+        
+        assert len(labels) == len(tokens), print(f"labels length {len(labels)} != tokens length {len(tokens)}")
+        assert int(text_mask.sum()) == len(labels), print(f"text_mask sum {int(text_mask.sum())} != labels length {len(labels)}")
+        
+        return indexed_tokens, mask, text_mask, labels
 
     def __insert_sample__(self, index, sample_classes):
         for item in sample_classes:
@@ -115,10 +200,15 @@ class FewShotNERDatasetWithRandomSampling(data.Dataset):
         classes = list(set(classes))
         return samples, classes
 
-    def __get_token_label_list__(self, sample):
+    def __get_token_label_list__(self, sample, tags=None):
+        if tags is None:
+            words = sample.words
+            tags = sample.normalized_tags
+        else:
+            words = sample
         tokens = []
         labels = []
-        for word, tag in zip(sample.words, sample.normalized_tags):
+        for word, tag in zip(words, tags):
             word_tokens = self.tokenizer.tokenize(word)
             if word_tokens:
                 tokens.extend(word_tokens)
@@ -128,47 +218,22 @@ class FewShotNERDatasetWithRandomSampling(data.Dataset):
         return tokens, labels
 
 
-    def __getraw__(self, tokens, labels):
-        # get tokenized word list, attention mask, text mask (mask [CLS], [SEP] as well), tags
-        
-        # split into chunks of length (max_length-2)
-        # 2 is for special tokens [CLS] and [SEP]
-        tokens_list = []
-        labels_list = []
-        while len(tokens) > self.max_length - 2:
-            tokens_list.append(tokens[:self.max_length-2])
-            tokens = tokens[self.max_length-2:]
-            labels_list.append(labels[:self.max_length-2])
-            labels = labels[self.max_length-2:]
-        if tokens:
-            tokens_list.append(tokens)
-            labels_list.append(labels)
+    def __getraw__(self, tokens, labels, episode_type='support'):
+        # Build sequences using tokenizer-defined special tokens so BERT and Llama-style
+        # tokenizers both preserve the same label alignment contract.
+        tokens_list, labels_list = self.__split_tokens_and_labels__(tokens, labels)
 
-        # add special tokens and get masks
         indexed_tokens_list = []
         mask_list = []
         text_mask_list = []
         for i, tokens in enumerate(tokens_list):
-            # token -> ids
-            tokens = ['[CLS]'] + tokens + ['[SEP]']
-            indexed_tokens = self.tokenizer.convert_tokens_to_ids(tokens)
-        
-            # padding
-            while len(indexed_tokens) < self.max_length:
-                indexed_tokens.append(0)
+            indexed_tokens, mask, text_mask, _ = self.__build_tokenizer_sequence__(tokens, labels_list[i])
             indexed_tokens_list.append(indexed_tokens)
-
-            # mask
-            mask = np.zeros((self.max_length), dtype=np.int32)
-            mask[:len(tokens)] = 1
             mask_list.append(mask)
-
-            # text mask, also mask [CLS] and [SEP]
-            text_mask = np.zeros((self.max_length), dtype=np.int32)
-            text_mask[1:len(tokens)-1] = 1
             text_mask_list.append(text_mask)
-
-            assert len(labels_list[i]) == len(tokens) - 2, print(labels_list[i], tokens)
+            # Check alignment on first sequence of each episode
+            if i == 0:
+                self.__check_alignment__(tokens, labels_list[i], text_mask, episode_type=episode_type)
         return indexed_tokens_list, mask_list, text_mask_list, labels_list
 
     def __additem__(self, index, d, word, mask, text_mask, label):
@@ -178,7 +243,7 @@ class FewShotNERDatasetWithRandomSampling(data.Dataset):
         d['label'] += label
         d['text_mask'] += text_mask
 
-    def __populate__(self, idx_list, savelabeldic=False):
+    def __populate__(self, idx_list, savelabeldic=False, episode_type='support'):
         '''
         populate samples into data dict
         set savelabeldic=True if you want to save label2tag dict
@@ -192,7 +257,7 @@ class FewShotNERDatasetWithRandomSampling(data.Dataset):
         dataset = {'index':[], 'word': [], 'mask': [], 'label':[], 'sentence_num':[], 'text_mask':[] }
         for idx in idx_list:
             tokens, labels = self.__get_token_label_list__(self.samples[idx])
-            word, mask, text_mask, label = self.__getraw__(tokens, labels)
+            word, mask, text_mask, label = self.__getraw__(tokens, labels, episode_type=episode_type)
             word = torch.tensor(word).long()
             mask = torch.tensor(np.array(mask)).long()
             text_mask = torch.tensor(np.array(text_mask)).long()
@@ -208,8 +273,8 @@ class FewShotNERDatasetWithRandomSampling(data.Dataset):
         distinct_tags = ['O'] + target_classes
         self.tag2label = {tag:idx for idx, tag in enumerate(distinct_tags)}
         self.label2tag = {idx:tag for idx, tag in enumerate(distinct_tags)}
-        support_set = self.__populate__(support_idx)
-        query_set = self.__populate__(query_idx, savelabeldic=True)
+        support_set = self.__populate__(support_idx, episode_type='support')
+        query_set = self.__populate__(query_idx, savelabeldic=True, episode_type='query')
         return support_set, query_set
     
     def __len__(self):
@@ -219,7 +284,7 @@ class FewShotNERDataset(FewShotNERDatasetWithRandomSampling):
     """
       Used only when we have the actual episodes used in the paper. They are currently not available.
     """
-    def __init__(self, filepath, tokenizer, max_length, ignore_label_id=-1):
+    def __init__(self, filepath, tokenizer, max_length, ignore_label_id=-1, debug_alignment=False):
         if not os.path.exists(filepath):
             print("[ERROR] Data file does not exist!")
             assert(0)
@@ -228,6 +293,9 @@ class FewShotNERDataset(FewShotNERDatasetWithRandomSampling):
         self.samples = self.__load_data_from_file__(filepath)
         self.max_length = max_length
         self.ignore_label_id = ignore_label_id
+        self.pad_token_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else 0
+        self.debug_alignment = debug_alignment
+        self.alignment_check_count = 0
     
     def __load_data_from_file__(self, filepath):
         with open(filepath)as f:
@@ -241,20 +309,8 @@ class FewShotNERDataset(FewShotNERDatasetWithRandomSampling):
         d['mask'] += mask
         d['label'] += label
         d['text_mask'] += text_mask
-    
-    def __get_token_label_list__(self, words, tags):
-        tokens = []
-        labels = []
-        for word, tag in zip(words, tags):
-            word_tokens = self.tokenizer.tokenize(word)
-            if word_tokens:
-                tokens.extend(word_tokens)
-                # Use the real label id for the first token of the word, and padding ids for the remaining tokens
-                word_labels = [self.tag2label[tag]] + [self.ignore_label_id] * (len(word_tokens) - 1)
-                labels.extend(word_labels)
-        return tokens, labels
 
-    def __populate__(self, data, savelabeldic=False):
+    def __populate__(self, data, savelabeldic=False, episode_type='support'):
         '''
         populate samples into data dict
         set savelabeldic=True if you want to save label2tag dict
@@ -267,7 +323,7 @@ class FewShotNERDataset(FewShotNERDatasetWithRandomSampling):
         dataset = {'word': [], 'mask': [], 'label':[], 'sentence_num':[], 'text_mask':[] }
         for i in range(len(data['word'])):
             tokens, labels = self.__get_token_label_list__(data['word'][i], data['label'][i])
-            word, mask, text_mask, label = self.__getraw__(tokens, labels)
+            word, mask, text_mask, label = self.__getraw__(tokens, labels, episode_type=episode_type)
             word = torch.tensor(word).long()
             mask = torch.tensor(mask).long()
             text_mask = torch.tensor(text_mask).long()
@@ -314,11 +370,11 @@ def collate_fn(data):
     return batch_support, batch_query
 
 def get_loader(filepath, tokenizer, N, K, Q, batch_size, max_length, 
-        num_workers=8, collate_fn=collate_fn, ignore_index=-1, use_sampled_data=True):
+        num_workers=8, collate_fn=collate_fn, ignore_index=-1, use_sampled_data=True, debug_alignment=False):
     if not use_sampled_data:
-        dataset = FewShotNERDatasetWithRandomSampling(filepath, tokenizer, N, K, Q, max_length, ignore_label_id=ignore_index)
+        dataset = FewShotNERDatasetWithRandomSampling(filepath, tokenizer, N, K, Q, max_length, ignore_label_id=ignore_index, debug_alignment=debug_alignment)
     else:
-        dataset = FewShotNERDataset(filepath, tokenizer, max_length, ignore_label_id=ignore_index)
+        dataset = FewShotNERDataset(filepath, tokenizer, max_length, ignore_label_id=ignore_index, debug_alignment=debug_alignment)
     data_loader = data.DataLoader(dataset=dataset,
             batch_size=batch_size,
             shuffle=True,

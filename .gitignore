@@ -8,6 +8,7 @@ apex
 *.slurm
 *deprecated.py
 data/*
+!data/download_hf.py
 !data/labels.txt
 *.zip
 *ignore.py
