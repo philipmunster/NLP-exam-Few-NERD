@@ -167,11 +167,8 @@ def main():
         raise ValueError("--profile_every must be >= 1")
     opt = resolve_encoder_and_tokenizer_args(opt)
 
-    if opt.encoder_family == 'llama' and (opt.use_4bit or opt.use_8bit):
-        raise NotImplementedError(
-            "--use_4bit/--use_8bit flags are parsed but quantized loading is not wired yet in this branch. "
-            "Run without these flags, or implement BitsAndBytesConfig-based loading first."
-        )
+    if opt.use_4bit and opt.use_8bit:
+        raise ValueError("Use only one of --use_4bit or --use_8bit.")
 
     if opt.use_lora and not PEFT_AVAILABLE:
         raise ImportError(
@@ -195,6 +192,8 @@ def main():
     print('encoder_name: {}'.format(opt.encoder_name_resolved))
     print('tokenizer_name: {}'.format(opt.tokenizer_name_resolved))
     print('use_lora: {}'.format(opt.use_lora))
+    print('use_4bit: {}, use_8bit: {}'.format(opt.use_4bit, opt.use_8bit))
+    print('profile_batches: {}, profile_every: {}'.format(opt.profile_batches, opt.profile_every))
     if opt.use_lora:
         print('lora_r: {}, lora_alpha: {}, lora_dropout: {}, lora_bias: {}, lora_targets: {}'.format(
             opt.lora_r, opt.lora_alpha, opt.lora_dropout, opt.lora_bias, ','.join(opt.lora_target_modules_list)
@@ -215,7 +214,13 @@ def main():
             'lora_target_modules': opt.lora_target_modules_list,
             'lora_bias': opt.lora_bias
         }
-        word_encoder = LlamaWordEncoder(pretrain_ckpt, use_lora=opt.use_lora, lora_config=lora_config)
+        word_encoder = LlamaWordEncoder(
+            pretrain_ckpt,
+            use_lora=opt.use_lora,
+            lora_config=lora_config,
+            use_4bit=opt.use_4bit,
+            use_8bit=opt.use_8bit,
+        )
         tokenizer = load_tokenizer(opt.tokenizer_name_resolved)
         
         if opt.gradient_checkpointing:
@@ -228,9 +233,11 @@ def main():
                 word_encoder.model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
             word_encoder.model.gradient_checkpointing_enable()
         
-        if opt.use_bf16:
+        if opt.use_bf16 and not (opt.use_4bit or opt.use_8bit):
             print("[INFO] Using bfloat16 precision for Llama encoder")
             word_encoder.model = word_encoder.model.to(torch.bfloat16)
+        elif opt.use_bf16:
+            print("[INFO] Using bfloat16 compute dtype for quantized Llama encoder")
     else:
         raise ValueError("Unsupported encoder_family: {}".format(opt.encoder_family))
 
@@ -288,8 +295,10 @@ def main():
         ckpt = opt.save_ckpt
     print('model-save-path:', ckpt)
 
-    if torch.cuda.is_available():
+    if torch.cuda.is_available() and not (opt.encoder_family == 'llama' and (opt.use_4bit or opt.use_8bit)):
         model.cuda()
+    elif torch.cuda.is_available():
+        print("[INFO] Skipping model.cuda(); quantized Llama was placed by from_pretrained(device_map='auto')")
 
     if not opt.only_test:
         if opt.lr == -1:
