@@ -141,6 +141,10 @@ def main():
            help='Use 4-bit quantization for encoder (requires bitsandbytes).')
     parser.add_argument('--gradient_checkpointing', action='store_true',
            help='Enable gradient checkpointing to reduce memory usage (slower training).')
+    parser.add_argument('--profile_batches', action='store_true',
+           help='Print per-batch timing for train, validation, and test loops.')
+    parser.add_argument('--profile_every', type=int, default=1,
+           help='When --profile_batches is set, print every N batches.')
 
     # only for bert / roberta
     parser.add_argument('--pretrain_ckpt', default=None,
@@ -159,6 +163,8 @@ def main():
            help='use SGD instead of AdamW for BERT.')
 
     opt = parser.parse_args()
+    if opt.profile_every < 1:
+        raise ValueError("--profile_every must be >= 1")
     opt = resolve_encoder_and_tokenizer_args(opt)
 
     if opt.encoder_family == 'llama' and (opt.use_4bit or opt.use_8bit):
@@ -292,7 +298,8 @@ def main():
         framework.train(model, prefix,
                 load_ckpt=opt.load_ckpt, save_ckpt=ckpt,
                 val_step=opt.val_step, fp16=opt.fp16,
-                train_iter=opt.train_iter, warmup_step=int(opt.train_iter * 0.1), val_iter=opt.val_iter, learning_rate=opt.lr, use_sgd_for_bert=opt.use_sgd_for_bert)
+                train_iter=opt.train_iter, warmup_step=int(opt.train_iter * 0.1), val_iter=opt.val_iter, learning_rate=opt.lr, use_sgd_for_bert=opt.use_sgd_for_bert,
+                profile_batches=opt.profile_batches, profile_every=opt.profile_every)
     else:
         ckpt = opt.load_ckpt
         if ckpt is None:
@@ -303,7 +310,14 @@ def main():
     if not os.path.exists(opt.metrics_dir):
         os.makedirs(opt.metrics_dir, exist_ok=True)
     metrics_csv = os.path.join(opt.metrics_dir, f"{prefix}.csv")
-    precision, recall, f1, fp, fn, within, outer = framework.eval(model, opt.test_iter, ckpt=ckpt, save_csv=metrics_csv)
+    precision, recall, f1, fp, fn, within, outer = framework.eval(
+        model,
+        opt.test_iter,
+        ckpt=ckpt,
+        save_csv=metrics_csv,
+        profile_batches=opt.profile_batches,
+        profile_every=opt.profile_every,
+    )
     print("RESULT: precision: %.4f, recall: %.4f, f1:%.4f" % (precision, recall, f1))
     print('ERROR ANALYSIS: fp: %.4f, fn: %.4f, within:%.4f, outer: %.4f'%(fp, fn, within, outer))
 

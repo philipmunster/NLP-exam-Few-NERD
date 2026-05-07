@@ -20,6 +20,16 @@ def warmup_linear(global_step, warmup_step):
     else:
         return 1.0
 
+def compute_prf(correct_cnt, pred_cnt, label_cnt, epsilon=1e-8):
+    precision = correct_cnt / (pred_cnt + epsilon)
+    recall = correct_cnt / (label_cnt + epsilon)
+    f1 = 2 * precision * recall / (precision + recall + epsilon)
+    return precision, recall, f1
+
+def cuda_synchronize_if_available():
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+
 class FewShotNERModel(nn.Module):
     def __init__(self, my_word_encoder, ignore_index=-1):
         '''
@@ -289,7 +299,9 @@ class FewShotNERFramework:
               warmup_step=300,
               grad_iter=1,
               fp16=False,
-              use_sgd_for_bert=False):
+              use_sgd_for_bert=False,
+              profile_batches=False,
+              profile_every=1):
         '''
         model: a FewShotREModel instance
         model_name: Name of the model
@@ -351,10 +363,14 @@ class FewShotNERFramework:
         pred_cnt = 0
         label_cnt = 0
         correct_cnt = 0
+        train_profile_seconds = []
 
         it = 0
         while it + 1 < train_iter:
             for _, (support, query) in enumerate(self.train_data_loader):
+                cuda_synchronize_if_available()
+                batch_start = time.time()
+
                 label = torch.cat(query['label'], 0)
                 if torch.cuda.is_available():
                     for k in support:
@@ -379,22 +395,34 @@ class FewShotNERFramework:
                     scheduler.step()
                     optimizer.zero_grad()
 
+                cuda_synchronize_if_available()
+                batch_seconds = time.time() - batch_start
+
                 iter_loss += self.item(loss.data)
                 #iter_right += self.item(right.data)
                 pred_cnt += tmp_pred_cnt
                 label_cnt += tmp_label_cnt
                 correct_cnt += correct
                 iter_sample += 1
+                if profile_batches and (it + 1) % profile_every == 0:
+                    print("[PROFILE][train] batch={0} seconds={1:.4f} loss={2:.6f}".format(
+                        it + 1, batch_seconds, self.item(loss.data) * float(grad_iter)
+                    ))
+                if profile_batches:
+                    train_profile_seconds.append(batch_seconds)
                 if (it + 1) % 100 == 0 or (it + 1) % val_step == 0:
-                    precision = correct_cnt / pred_cnt
-                    recall = correct_cnt / label_cnt
-                    f1 = 2 * precision * recall / (precision + recall + 1e-8)
+                    precision, recall, f1 = compute_prf(correct_cnt, pred_cnt, label_cnt)
                     sys.stdout.write('step: {0:4} | loss: {1:2.6f} | [ENTITY] precision: {2:3.4f}, recall: {3:3.4f}, f1: {4:3.4f}'\
                         .format(it + 1, iter_loss/ iter_sample, precision, recall, f1) + '\r')
                 sys.stdout.flush()
 
                 if (it + 1) % val_step == 0:
-                    _, _, f1, _, _, _, _ = self.eval(model, val_iter)
+                    _, _, f1, _, _, _, _ = self.eval(
+                        model,
+                        val_iter,
+                        profile_batches=profile_batches,
+                        profile_every=profile_every,
+                    )
                     model.train()
                     if f1 > best_f1:
                         print('Best checkpoint')
@@ -411,6 +439,11 @@ class FewShotNERFramework:
                 it += 1
                 
         print("\n####################\n")
+        if profile_batches and train_profile_seconds:
+            avg_seconds = sum(train_profile_seconds) / len(train_profile_seconds)
+            print("[PROFILE][train] batches={0} avg_seconds={1:.4f} total_seconds={2:.4f}".format(
+                len(train_profile_seconds), avg_seconds, sum(train_profile_seconds)
+            ))
         print("Finish training " + model_name)
     
     def __get_emmissions__(self, logits, tags_list):
@@ -444,7 +477,9 @@ class FewShotNERFramework:
             model,
             eval_iter,
             ckpt=None,
-            save_csv=None):
+            save_csv=None,
+            profile_batches=False,
+            profile_every=1):
         """
         model: a FewShotREModel instance
         B: Batch size
@@ -461,6 +496,7 @@ class FewShotNERFramework:
         if ckpt is None:
             print("Use val dataset")
             eval_dataset = self.val_data_loader
+            profile_split = "val"
         else:
             print("Use test dataset")
             if ckpt != 'none':
@@ -471,6 +507,7 @@ class FewShotNERFramework:
                         continue
                     own_state[name].copy_(param)
             eval_dataset = self.test_data_loader
+            profile_split = "test"
 
         pred_cnt = 0 # pred entity cnt
         label_cnt = 0 # true label entity cnt
@@ -482,6 +519,7 @@ class FewShotNERFramework:
         within_cnt = 0 # span correct but of wrong fine-grained type 
         outer_cnt = 0 # span correct but of wrong coarse-grained type
         total_span_cnt = 0 # span correct
+        eval_profile_seconds = []
 
         type_stats = None
         if save_csv is not None:
@@ -537,6 +575,9 @@ class FewShotNERFramework:
             for _, (support, query) in enumerate(eval_dataset):
                 if it >= eval_iter:
                     break
+                cuda_synchronize_if_available()
+                batch_start = time.time()
+
                 label = torch.cat(query['label'], 0)
                 if torch.cuda.is_available():
                     for k in support:
@@ -584,11 +625,17 @@ class FewShotNERFramework:
                 within_cnt += within
                 total_span_cnt += total_span
                 it += 1
+                cuda_synchronize_if_available()
+                batch_seconds = time.time() - batch_start
+                if profile_batches and it % profile_every == 0:
+                    print("[PROFILE][{0}] batch={1} seconds={2:.4f}".format(
+                        profile_split, it, batch_seconds
+                    ))
+                if profile_batches:
+                    eval_profile_seconds.append(batch_seconds)
 
             epsilon = 1e-6
-            precision = correct_cnt / (pred_cnt + epsilon)
-            recall = correct_cnt / (label_cnt + epsilon)
-            f1 = 2 * precision * recall / (precision + recall + epsilon)
+            precision, recall, f1 = compute_prf(correct_cnt, pred_cnt, label_cnt, epsilon)
             fp_error = fp_cnt / (total_token_cnt + epsilon)
             fn_error = fn_cnt / (total_token_cnt + epsilon)
             within_error = within_cnt / (total_span_cnt + epsilon)
@@ -596,6 +643,11 @@ class FewShotNERFramework:
             sys.stdout.write('[EVAL] step: {0:4} | [ENTITY] precision: {1:3.4f}, recall: {2:3.4f}, f1: {3:3.4f}'.format(it + 1, precision, recall, f1) + '\r')
             sys.stdout.flush()
             print("")
+            if profile_batches and eval_profile_seconds:
+                avg_seconds = sum(eval_profile_seconds) / len(eval_profile_seconds)
+                print("[PROFILE][{0}] batches={1} avg_seconds={2:.4f} total_seconds={3:.4f}".format(
+                    profile_split, len(eval_profile_seconds), avg_seconds, sum(eval_profile_seconds)
+                ))
         if save_csv is not None and type_stats is not None:
             import csv
 
