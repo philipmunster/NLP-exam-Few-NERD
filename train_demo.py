@@ -213,6 +213,13 @@ def main():
         tokenizer = load_tokenizer(opt.tokenizer_name_resolved)
         
         if opt.gradient_checkpointing:
+            if hasattr(word_encoder.model, "enable_input_require_grads"):
+                word_encoder.model.enable_input_require_grads()
+            elif hasattr(word_encoder.model, "get_input_embeddings"):
+                def make_inputs_require_grad(module, input, output):
+                    output.requires_grad_(True)
+
+                word_encoder.model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
             word_encoder.model.gradient_checkpointing_enable()
         
         if opt.use_bf16:
