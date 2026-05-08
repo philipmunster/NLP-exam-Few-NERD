@@ -434,9 +434,9 @@ class FewShotNERFramework:
                     label_cnt = 0
                     correct_cnt = 0
 
-                if (it + 1)  == train_iter:
-                    break
                 it += 1
+                if it == train_iter:
+                    break
                 
         print("\n####################\n")
         if profile_batches and train_profile_seconds:
