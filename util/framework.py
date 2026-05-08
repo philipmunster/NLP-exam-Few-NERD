@@ -357,7 +357,7 @@ class FewShotNERFramework:
         model.train()
 
         # Training
-        best_f1 = 0.0
+        best_f1 = -1.0
         iter_loss = 0.0
         iter_sample = 0
         pred_cnt = 0
@@ -366,7 +366,7 @@ class FewShotNERFramework:
         train_profile_seconds = []
 
         it = 0
-        while it + 1 < train_iter:
+        while it < train_iter:
             for _, (support, query) in enumerate(self.train_data_loader):
                 cuda_synchronize_if_available()
                 batch_start = time.time()
