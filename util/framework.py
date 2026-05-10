@@ -271,7 +271,7 @@ class FewShotNERFramework:
         return: Checkpoint dict
         '''
         if os.path.isfile(ckpt):
-            checkpoint = torch.load(ckpt)
+            checkpoint = torch.load(ckpt, map_location='cpu')
             print("Successfully loaded checkpoint '%s'" % ckpt)
             return checkpoint
         else:
