@@ -4,7 +4,7 @@ import re
 import pandas as pd
 
 # creates colum names for the dataframe 
-COLUMNS = ["prompt_type", "N", "K", "col4", "seed", "prompt_answer", "gold_standard"]
+# COLUMNS = ["prompt_type", "N", "K", "col4", "seed", "prompt_answer", "gold_standard"]
 
 # Regex for a valid NER label (e.g. "O", "event-election", "person-actor")
 LABEL_RE = re.compile(r'^(?:O|[a-z][\w]*(?:-[\w]+)+)$', re.IGNORECASE)
@@ -115,8 +115,8 @@ if __name__ == "__main__":
     path    = "ner_results.csv"
     out_path = "ner_results_with_json.csv"
 
-    df = pd.read_csv(path, header=None, names=COLUMNS)
-    df = parse_ner_column(df, answer_col="prompt_answer", out_col="json_format")
+    df = pd.read_csv(path)
+    df = parse_ner_column(df, answer_col="model_output", out_col="json_format")
 
     total      = len(df)
     parsed_ok  = df["json_format"].notna().sum()
