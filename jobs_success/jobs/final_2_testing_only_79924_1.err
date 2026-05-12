@@ -1,0 +1,78 @@
++ module load CUDA/12.1.1
++ '[' -z '' ']'
++ case "$-" in
++ __lmod_sh_dbg=x
++ '[' -n x ']'
++ set +x
+Shell debugging temporarily silenced: export LMOD_SH_DBG_ON=1 for Lmod's output
+Shell debugging restarted
++ unset __lmod_sh_dbg
++ return 0
++ module load Miniconda3/25.5.1-1
++ '[' -z '' ']'
++ case "$-" in
++ __lmod_sh_dbg=x
++ '[' -n x ']'
++ set +x
+Shell debugging temporarily silenced: export LMOD_SH_DBG_ON=1 for Lmod's output
+Shell debugging restarted
++ unset __lmod_sh_dbg
++ return 0
++ module load GCCcore/13.3.0
++ '[' -z '' ']'
++ case "$-" in
++ __lmod_sh_dbg=x
++ '[' -n x ']'
++ set +x
+Shell debugging temporarily silenced: export LMOD_SH_DBG_ON=1 for Lmod's output
+Shell debugging restarted
++ unset __lmod_sh_dbg
++ return 0
+++ hostname
++ echo 'Running on cn6.hpc.itu.dk'
++ JOB_SCRATCH_ID=79924-1
++ SCRATCH_DIR=
++ for candidate in "/scratch/$JOB_SCRATCH_ID" "/tmp/$USER/$JOB_SCRATCH_ID"
++ mkdir -p /scratch/79924-1/tmp
++ SCRATCH_DIR=/scratch/79924-1
++ break
++ [[ -z /scratch/79924-1 ]]
++ export TMPDIR=/scratch/79924-1/tmp
++ TMPDIR=/scratch/79924-1/tmp
++ export TMP=/scratch/79924-1/tmp
++ TMP=/scratch/79924-1/tmp
++ export TEMP=/scratch/79924-1/tmp
++ TEMP=/scratch/79924-1/tmp
++ export HF_HOME=/home/pmyn/nlp-exam/hf_cache
++ HF_HOME=/home/pmyn/nlp-exam/hf_cache
++ export TRANSFORMERS_CACHE=/home/pmyn/nlp-exam/hf_cache
++ TRANSFORMERS_CACHE=/home/pmyn/nlp-exam/hf_cache
++ export TOKENIZERS_PARALLELISM=false
++ TOKENIZERS_PARALLELISM=false
++ set +x
++ mkdir -p /home/pmyn/nlp-exam/hf_cache /home/pmyn/nlp-exam/jobs
++ trap cleanup EXIT INT TERM
++ cd /home/pmyn/nlp-exam/NLP-exam-Few-NERD
++ '[' '!' -f data/inter/train.txt ']'
++ '[' '!' -f data/inter/dev.txt ']'
++ '[' '!' -f data/inter/test.txt ']'
++ NS=(5 10)
++ KS=(5 1)
++ CKPTS=(checkpoint/proto-inter-5-5-seed0-llama-lora-inter-5way-5shot.pth.tar checkpoint/proto-inter-10-1-seed0-llama-lora-inter-10way-1shot.pth.tar)
++ N=10
++ K=1
++ CKPT=checkpoint/proto-inter-10-1-seed0-llama-lora-inter-10way-1shot.pth.tar
++ BATCH_SIZE=1
++ TEST_ITER=3000
++ SEED=0
++ /home/pmyn/nlp-exam/envs/nlp_env/bin/python -u train_demo.py --mode inter --encoder_family llama --encoder_name meta-llama/Llama-3.1-8B --use_lora --lora_r 16 --lora_alpha 32 --lora_dropout 0.05 --use_bf16 --gradient_checkpointing --model proto --trainN 10 --N 10 --K 1 --Q 1 --batch_size 1 --test_iter 3000 --max_length 64 --seed 0 --load_ckpt checkpoint/proto-inter-10-1-seed0-llama-lora-inter-10way-1shot.pth.tar --ckpt_name llama-lora-inter-10way-1shot --only_test
+/home/pmyn/nlp-exam/envs/nlp_env/lib/python3.11/site-packages/transformers/utils/hub.py:110: FutureWarning: Using `TRANSFORMERS_CACHE` is deprecated and will be removed in v5 of Transformers. Use `HF_HOME` instead.
+  warnings.warn(
+Loading checkpoint shards:   0%|          | 0/4 [00:00<?, ?it/s]Loading checkpoint shards:  25%|██▌       | 1/4 [02:48<08:25, 168.38s/it]Loading checkpoint shards:  50%|█████     | 2/4 [05:33<05:33, 166.55s/it]Loading checkpoint shards:  75%|███████▌  | 3/4 [08:00<02:37, 157.63s/it]Loading checkpoint shards: 100%|██████████| 4/4 [08:05<00:00, 97.21s/it] Loading checkpoint shards: 100%|██████████| 4/4 [08:05<00:00, 121.31s/it]
+/home/pmyn/nlp-exam/NLP-exam-Few-NERD/util/framework.py:274: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  checkpoint = torch.load(ckpt, map_location='cpu')
++ cleanup
++ [[ -n /scratch/79924-1 ]]
++ [[ /scratch/79924-1 == /scratch/* ]]
++ echo 'Cleaning up scratch directory: /scratch/79924-1'
++ rm -rf /scratch/79924-1

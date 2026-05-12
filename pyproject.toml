@@ -12,4 +12,5 @@ dependencies = [
     "numpy>=1.26.4",
     "scikit-learn>=1.4.2",
     "seqeval>=1.2.2",
+    "matplotlib",
 ]
