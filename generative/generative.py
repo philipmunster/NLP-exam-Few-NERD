@@ -5,11 +5,8 @@ import os
 import pandas as pd
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from util.data_loader_generative import data_loader_generative
-from transformers import BitsAndBytesConfig
 
-# Change to "meta-llama/Llama-3.1-8B-Instruct" on HPC
 model_id = "meta-llama/Llama-3.1-8B-Instruct"
-
 
 pipeline = transformers.pipeline(
     "text-generation",
@@ -67,15 +64,11 @@ for seed in seed_list:
                     {test_str}
                     OUTPUT:"""
 
-            output = pipeline(prompt, max_new_tokens=2048)
+            output = pipeline(prompt, a)
 
-            #raw = output[0]["generated_text"][-1]["content"]
             raw = output[0]["generated_text"][len(prompt):]
 
-            #safe outputs in a df [n, k, test_size, seed, model_output, ground_truth]
-            # Ground truth from test_df
             ground_truth = test_df[["sentence", "labels"]].to_dict(orient="records")
-
 
             row = {
                 "n": n,
@@ -87,7 +80,7 @@ for seed in seed_list:
 
             results_df = pd.DataFrame([row])
 
-            output_path = "generative/output/ner_results_final.csv"
+            output_path = "generative/output/generative_output_final.csv"
             results_df.to_csv(
                 output_path,
                 mode='a',
