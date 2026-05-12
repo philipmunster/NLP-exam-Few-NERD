@@ -5,20 +5,13 @@ import os
 import pandas as pd
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from util.data_loader_generative import data_loader_generative
-from transformers import BitsAndBytesConfig
 
-# Change to "meta-llama/Llama-3.1-8B-Instruct" on HPC
 model_id = "meta-llama/Llama-3.1-8B-Instruct"
-
-quantization_config = BitsAndBytesConfig(load_in_4bit=True)
 
 pipeline = transformers.pipeline(
     "text-generation",
     model=model_id,
-    model_kwargs={
-        "quantization_config": quantization_config,
-    },
-    device_map="cuda"
+    device_map="auto"
 )
 
 prompt_names = ["json_no_constraints", "colon_no_constraints", "json_with_constraints", "colon_with_constraints"]
@@ -154,7 +147,6 @@ for prompt in prompt_names:
 
                 output = pipeline(prompts[prompt], max_new_tokens=2048)
 
-                #raw = output[0]["generated_text"][-1]["content"]
                 raw = output[0]["generated_text"][len(prompts[prompt]):]
 
                 #safe outputs in a df [n, k, test_size, seed, model_output, ground_truth]
