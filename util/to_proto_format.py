@@ -32,11 +32,13 @@ def compute_errors(gold_spans, pred_spans):
     outer_error:  of all FP spans, what fraction were a type confusion
                   across coarse groups
                   e.g. predicted location-gpe when gold was person-actor
+
+    Returns raw counts (within_count, outer_count) — caller divides by fp.
 """
     fp_spans = pred_spans - gold_spans
 
     if not fp_spans:
-        return 0.0, 0.0
+        return 0, 0
 
     gold_pos = defaultdict(set)
     for start, end, lbl in gold_spans:
@@ -58,18 +60,18 @@ def compute_errors(gold_spans, pred_spans):
         else:
             outer  += 1   # right position, wrong coarse type entirely
 
-    total_fp = len(fp_spans)
-    return within / total_fp, outer / total_fp
+    return within, outer
 
 
 def build_proto_rows(evaluated_rows, df, valid_types=None):
     # Accumulators keyed by fine-grained type label
     fine = defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0,
-                                "within": 0.0, "outer": 0.0,
-                                "support": 0, "query_cnt": 0,
-                                "fp_count_for_error": 0})
+                                "within": 0, "outer": 0,
+                                "support": 0, "query_cnt": 0})
 
     total_tp = total_fp = total_fn = 0
+    total_within = 0
+    total_outer  = 0
 
     for result in evaluated_rows:
         i = result["row"]
@@ -92,30 +94,45 @@ def build_proto_rows(evaluated_rows, df, valid_types=None):
             gold_spans = {s for s in gold_spans if s[2] in valid_types}
             pred_spans = {s for s in pred_spans if s[2] in valid_types}
 
-        total_tp += len(gold_spans & pred_spans)
-        total_fp += len(pred_spans - gold_spans)
-        total_fn += len(gold_spans - pred_spans)
+        fp_spans = pred_spans - gold_spans
+        fn_spans = gold_spans - pred_spans
+        tp_spans = gold_spans & pred_spans
+
+        total_tp += len(tp_spans)
+        total_fp += len(fp_spans)
+        total_fn += len(fn_spans)
 
         # Per fine-grained type accumulation
-        for span in gold_spans & pred_spans:
+        for span in tp_spans:
             fine[span[2]]["tp"]        += 1
             fine[span[2]]["support"]   += 1
             fine[span[2]]["query_cnt"] += 1
 
-        for span in pred_spans - gold_spans:
+        for span in fp_spans:
             fine[span[2]]["fp"]        += 1
             fine[span[2]]["query_cnt"] += 1
-            fine[span[2]]["fp_count_for_error"] += 1
 
-        for span in gold_spans - pred_spans:
+        for span in fn_spans:
             fine[span[2]]["fn"]      += 1
             fine[span[2]]["support"] += 1
 
-        # Within/outer errors — computed per episode then accumulated
-        w, o = compute_errors(gold_spans, pred_spans)
-        for lbl in {s[2] for s in pred_spans - gold_spans}:
-            fine[lbl]["within"] += w
-            fine[lbl]["outer"]  += o
+        # Within/outer errors — per-span, attributed to the predicted label
+        gold_pos = defaultdict(set)
+        for start, end, lbl in gold_spans:
+            gold_pos[(start, end)].add(lbl)
+
+        for start, end, pred_lbl in fp_spans:
+            gold_types_at_pos = gold_pos.get((start, end), set())
+            if not gold_types_at_pos:
+                continue
+            pred_coarse  = coarse(pred_lbl)
+            gold_coarses = {coarse(g) for g in gold_types_at_pos}
+            if pred_coarse in gold_coarses:
+                fine[pred_lbl]["within"] += 1
+                total_within += 1
+            else:
+                fine[pred_lbl]["outer"]  += 1
+                total_outer  += 1
 
     rows = []
 
@@ -127,8 +144,8 @@ def build_proto_rows(evaluated_rows, df, valid_types=None):
         "f1":           f1,
         "fp_cnt":       total_fp,
         "fn_cnt":       total_fn,
-        "within_error": 0.0,
-        "outer_error":  0.0,
+        "within_error": total_within / total_fp if total_fp > 0 else 0.0,
+        "outer_error":  total_outer  / total_fp if total_fp > 0 else 0.0,
         "support":      "",
         "query_cnt":    ";",
     })
