@@ -6,6 +6,18 @@ from prompt_testing import (
     compute_prf,
 )
 import ast
+import glob as _glob
+import os as _os
+
+
+def load_proto_inter_types(metrics_dir="metrics"):
+    """Return the union of all 'type' values across proto-inter CSVs, excluding 'overall'."""
+    valid = set()
+    for path in _glob.glob(_os.path.join(metrics_dir, "proto-inter-*.csv")):
+        df = pd.read_csv(path)
+        valid.update(df["type"].dropna().tolist())
+    valid.discard("overall")
+    return valid
 
 
 def coarse(label):
@@ -14,9 +26,6 @@ def coarse(label):
 
 def compute_errors(gold_spans, pred_spans):
     """
-    Compute within_error and outer_error fractions for one episode,
-    matching the Few-NERD paper's error analysis (Table 7).
-
     within_error: of all FP spans, what fraction were a type confusion
                   within the same coarse group
                   e.g. predicted person-actor when gold was person-scholar
@@ -24,12 +33,7 @@ def compute_errors(gold_spans, pred_spans):
     outer_error:  of all FP spans, what fraction were a type confusion
                   across coarse groups
                   e.g. predicted location-gpe when gold was person-actor
-
-    Both are expressed as fractions of total FP count.
-    A FP span can only be within OR outer, not both.
-    A FP span that has no position overlap with any gold span is neither
-    (it is a pure hallucination) — counted in neither error type.
-    """
+"""
     fp_spans = pred_spans - gold_spans
 
     if not fp_spans:
@@ -45,7 +49,7 @@ def compute_errors(gold_spans, pred_spans):
     for start, end, pred_lbl in fp_spans:
         gold_types_at_pos = gold_pos.get((start, end), set())
         if not gold_types_at_pos:
-            continue 
+            continue
 
         pred_coarse  = coarse(pred_lbl)
         gold_coarses = {coarse(g) for g in gold_types_at_pos}
@@ -59,7 +63,7 @@ def compute_errors(gold_spans, pred_spans):
     return within / total_fp, outer / total_fp
 
 
-def build_proto_rows(evaluated_rows, df):
+def build_proto_rows(evaluated_rows, df, valid_types=None):
     # Accumulators keyed by fine-grained type label
     fine = defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0,
                                 "within": 0.0, "outer": 0.0,
@@ -84,9 +88,14 @@ def build_proto_rows(evaluated_rows, df):
         except Exception:
             continue
 
-        total_tp += result["tp"]
-        total_fp += result["fp"]
-        total_fn += result["fn"]
+        # Drop spans whose type is absent from the proto-inter reference files
+        if valid_types is not None:
+            gold_spans = {s for s in gold_spans if s[2] in valid_types}
+            pred_spans = {s for s in pred_spans if s[2] in valid_types}
+
+        total_tp += len(gold_spans & pred_spans)
+        total_fp += len(pred_spans - gold_spans)
+        total_fn += len(gold_spans - pred_spans)
 
         # Per fine-grained type accumulation
         for span in gold_spans & pred_spans:
@@ -105,9 +114,7 @@ def build_proto_rows(evaluated_rows, df):
 
         # Within/outer errors — computed per episode then accumulated
         w, o = compute_errors(gold_spans, pred_spans)
-        fp_count = len(pred_spans - gold_spans)
         for lbl in {s[2] for s in pred_spans - gold_spans}:
-            # Distribute episode-level error fractions proportionally
             fine[lbl]["within"] += w
             fine[lbl]["outer"]  += o
 
@@ -125,8 +132,8 @@ def build_proto_rows(evaluated_rows, df):
         "fn_cnt":       total_fn,
         "within_error": 0.0,
         "outer_error":  0.0,
-        "support":      "",      
-        "query_cnt":    ";",   
+        "support":      "",
+        "query_cnt":    ";",
     })
 
     coarse_agg = defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0,
@@ -176,8 +183,9 @@ def build_proto_rows(evaluated_rows, df):
 
     return rows
 
-def results_to_proto_csv(evaluated_rows, df, out_path):
-    rows = build_proto_rows(evaluated_rows, df)
+
+def results_to_proto_csv(evaluated_rows, df, out_path, valid_types=None):
+    rows = build_proto_rows(evaluated_rows, df, valid_types)
     out  = pd.DataFrame(rows, columns=[
         "type", "precision", "recall", "f1",
         "fp_cnt", "fn_cnt", "within_error", "outer_error",
@@ -186,7 +194,6 @@ def results_to_proto_csv(evaluated_rows, df, out_path):
     out.to_csv(out_path, index=False)
     print(f"Saved proto-format CSV -> {out_path}")
     return out
-
 
 
 if __name__ == "__main__":
@@ -199,6 +206,9 @@ if __name__ == "__main__":
 
     os.makedirs(out_dir, exist_ok=True)
 
+    valid_types = load_proto_inter_types("metrics")
+    print(f"Filtering to {len(valid_types)} types found in proto-inter reference files")
+
     df     = pd.read_csv(path)
     groups = df.groupby(["n", "k"])
 
@@ -210,6 +220,6 @@ if __name__ == "__main__":
         evaluated   = [r for r in all_results if not r["skipped"]]
 
         out_path = os.path.join(out_dir, f"proto-n{n}-k{k}.csv")
-        results_to_proto_csv(evaluated, group_df, out_path)
+        results_to_proto_csv(evaluated, group_df, out_path, valid_types)
 
     print(f"\nDone. {len(groups)} files saved to: {out_dir}/")
