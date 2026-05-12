@@ -8,3 +8,4 @@ datasets>=2.19.0
 peft>=0.7.0
 accelerate>=0.24.0
 bitsandbytes>=0.43.0
+matplotlib.pyplot

@@ -1,0 +1,122 @@
++ module load CUDA/12.1.1
++ '[' -z '' ']'
++ case "$-" in
++ __lmod_sh_dbg=x
++ '[' -n x ']'
++ set +x
+Shell debugging temporarily silenced: export LMOD_SH_DBG_ON=1 for Lmod's output
+Shell debugging restarted
++ unset __lmod_sh_dbg
++ return 0
++ module load Miniconda3/25.5.1-1
++ '[' -z '' ']'
++ case "$-" in
++ __lmod_sh_dbg=x
++ '[' -n x ']'
++ set +x
+Shell debugging temporarily silenced: export LMOD_SH_DBG_ON=1 for Lmod's output
+Shell debugging restarted
++ unset __lmod_sh_dbg
++ return 0
++ module load GCCcore/13.3.0
++ '[' -z '' ']'
++ case "$-" in
++ __lmod_sh_dbg=x
++ '[' -n x ']'
++ set +x
+Shell debugging temporarily silenced: export LMOD_SH_DBG_ON=1 for Lmod's output
+Shell debugging restarted
++ unset __lmod_sh_dbg
++ return 0
+++ hostname
++ echo 'Running on cn7.hpc.itu.dk'
++ JOB_SCRATCH_ID=79087-2
++ SCRATCH_DIR=
++ for candidate in "/scratch/$JOB_SCRATCH_ID" "/tmp/$USER/$JOB_SCRATCH_ID"
++ mkdir -p /scratch/79087-2/tmp
++ for candidate in "/scratch/$JOB_SCRATCH_ID" "/tmp/$USER/$JOB_SCRATCH_ID"
++ mkdir -p /tmp/pmyn/79087-2/tmp
++ SCRATCH_DIR=/tmp/pmyn/79087-2
++ break
++ [[ -z /tmp/pmyn/79087-2 ]]
++ export TMPDIR=/tmp/pmyn/79087-2/tmp
++ TMPDIR=/tmp/pmyn/79087-2/tmp
++ export TMP=/tmp/pmyn/79087-2/tmp
++ TMP=/tmp/pmyn/79087-2/tmp
++ export TEMP=/tmp/pmyn/79087-2/tmp
++ TEMP=/tmp/pmyn/79087-2/tmp
++ export HF_HOME=/home/pmyn/nlp-exam/hf_cache
++ HF_HOME=/home/pmyn/nlp-exam/hf_cache
++ export TRANSFORMERS_CACHE=/home/pmyn/nlp-exam/hf_cache
++ TRANSFORMERS_CACHE=/home/pmyn/nlp-exam/hf_cache
++ export TOKENIZERS_PARALLELISM=false
++ TOKENIZERS_PARALLELISM=false
++ set +x
++ mkdir -p /home/pmyn/nlp-exam/hf_cache /home/pmyn/nlp-exam/jobs
++ trap cleanup EXIT INT TERM
++ cd /home/pmyn/nlp-exam/NLP-exam-Few-NERD
++ '[' '!' -f data/inter/train.txt ']'
++ '[' '!' -f data/inter/dev.txt ']'
++ '[' '!' -f data/inter/test.txt ']'
++ NS=(5 5 10 10)
++ KS=(1 5 1 5)
++ N=10
++ K=1
++ BATCH_SIZE=1
++ TRAIN_ITER=8000
++ VAL_ITER=250
++ TEST_ITER=3000
++ VAL_STEP=1600
++ SEED=0
++ /home/pmyn/nlp-exam/envs/nlp_env/bin/python -u train_demo.py --mode inter --encoder_family llama --encoder_name meta-llama/Llama-3.1-8B --use_lora --lora_r 16 --lora_alpha 32 --lora_dropout 0.05 --use_bf16 --gradient_checkpointing --model proto --trainN 10 --N 10 --K 1 --Q 1 --batch_size 1 --lr 1e-4 --train_iter 8000 --val_iter 250 --test_iter 3000 --val_step 1600 --max_length 64 --seed 0 --ckpt_name llama-lora-inter-10way-1shot
+/home/pmyn/nlp-exam/envs/nlp_env/lib/python3.11/site-packages/transformers/utils/hub.py:110: FutureWarning: Using `TRANSFORMERS_CACHE` is deprecated and will be removed in v5 of Transformers. Use `HF_HOME` instead.
+  warnings.warn(
+Loading checkpoint shards:   0%|          | 0/4 [00:00<?, ?it/s]Loading checkpoint shards:  25%|██▌       | 1/4 [01:26<04:18, 86.30s/it]Loading checkpoint shards:  50%|█████     | 2/4 [02:33<02:29, 74.78s/it]Loading checkpoint shards:  75%|███████▌  | 3/4 [03:36<01:09, 69.48s/it]Loading checkpoint shards: 100%|██████████| 4/4 [03:36<00:00, 54.07s/it]
+`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+/home/pmyn/nlp-exam/envs/nlp_env/lib/python3.11/site-packages/torch/utils/checkpoint.py:295: FutureWarning: `torch.cpu.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cpu', args...)` instead.
+  with torch.enable_grad(), device_autocast_ctx, torch.cpu.amp.autocast(**ctx.cpu_autocast_kwargs):  # type: ignore[attr-defined]
+/home/pmyn/nlp-exam/NLP-exam-Few-NERD/util/framework.py:274: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  checkpoint = torch.load(ckpt)
+Traceback (most recent call last):
+  File "/home/pmyn/nlp-exam/NLP-exam-Few-NERD/train_demo.py", line 334, in <module>
+    main()
+  File "/home/pmyn/nlp-exam/NLP-exam-Few-NERD/train_demo.py", line 322, in main
+    precision, recall, f1, fp, fn, within, outer = framework.eval(
+                                                   ^^^^^^^^^^^^^^^
+  File "/home/pmyn/nlp-exam/NLP-exam-Few-NERD/util/framework.py", line 503, in eval
+    state_dict = self.__load_model__(ckpt)['state_dict']
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pmyn/nlp-exam/NLP-exam-Few-NERD/util/framework.py", line 274, in __load_model__
+    checkpoint = torch.load(ckpt)
+                 ^^^^^^^^^^^^^^^^
+  File "/home/pmyn/nlp-exam/envs/nlp_env/lib/python3.11/site-packages/torch/serialization.py", line 1097, in load
+    return _load(
+           ^^^^^^
+  File "/home/pmyn/nlp-exam/envs/nlp_env/lib/python3.11/site-packages/torch/serialization.py", line 1525, in _load
+    result = unpickler.load()
+             ^^^^^^^^^^^^^^^^
+  File "/home/pmyn/nlp-exam/envs/nlp_env/lib/python3.11/site-packages/torch/serialization.py", line 1492, in persistent_load
+    typed_storage = load_tensor(dtype, nbytes, key, _maybe_decode_ascii(location))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pmyn/nlp-exam/envs/nlp_env/lib/python3.11/site-packages/torch/serialization.py", line 1466, in load_tensor
+    wrap_storage=restore_location(storage, location),
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pmyn/nlp-exam/envs/nlp_env/lib/python3.11/site-packages/torch/serialization.py", line 414, in default_restore_location
+    result = fn(storage, location)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pmyn/nlp-exam/envs/nlp_env/lib/python3.11/site-packages/torch/serialization.py", line 392, in _deserialize
+    return obj.to(device=device)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pmyn/nlp-exam/envs/nlp_env/lib/python3.11/site-packages/torch/storage.py", line 187, in to
+    return _to(self, device, non_blocking)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pmyn/nlp-exam/envs/nlp_env/lib/python3.11/site-packages/torch/_utils.py", line 89, in _to
+    untyped_storage = torch.UntypedStorage(self.size(), device=device)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 112.00 MiB. GPU 0 has a total capacity of 23.60 GiB of which 94.25 MiB is free. Including non-PyTorch memory, this process has 23.50 GiB memory in use. Of the allocated memory 22.92 GiB is allocated by PyTorch, and 302.69 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
++ cleanup
++ [[ -n /tmp/pmyn/79087-2 ]]
++ [[ /tmp/pmyn/79087-2 == /scratch/* ]]
++ [[ /tmp/pmyn/79087-2 == /tmp/pmyn/* ]]
++ echo 'Cleaning up scratch directory: /tmp/pmyn/79087-2'
++ rm -rf /tmp/pmyn/79087-2

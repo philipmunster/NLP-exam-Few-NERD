@@ -590,15 +590,37 @@ class FewShotNERFramework:
                     pred = self.viterbi_decode(logits, query['label'])
 
                 if type_stats is not None:
-                    pred_cpu = pred.detach().cpu().tolist()
+                    # Must drop padding / special tokens the same way as metrics_by_entity and
+                    # __transform_label_to_tag__. Using the full flat pred with slice lengths
+                    # from *stripped* labels misaligns predictions when an episode has more
+                    # than one sentence (valid tokens are not contiguous in the flat tensor).
+                    pred_flat = pred.view(-1)
+                    lab_flat = label.view(-1)
+                    if pred_flat.shape[0] != lab_flat.shape[0]:
+                        raise RuntimeError(
+                            "type_stats CSV: pred and label flat lengths differ "
+                            "({} vs {})".format(pred_flat.shape[0], lab_flat.shape[0])
+                        )
+                    mask_flat = lab_flat != model.ignore_index
+                    pred_cpu = pred_flat[mask_flat].detach().cpu().tolist()
+                    expected_strip = int(mask_flat.sum().item())
+                    if len(pred_cpu) != expected_strip:
+                        raise RuntimeError(
+                            "type_stats CSV: masked pred length {} != label mask count {}".format(
+                                len(pred_cpu), expected_strip
+                            )
+                        )
+
                     current_sent_idx = 0
                     current_token_idx = 0
                     cur_supp_sent_idx = 0
+                    sum_episode_strips = 0
                     for idx, num in enumerate(query['sentence_num']):
                         true_label = torch.cat(query['label'][current_sent_idx:current_sent_idx+num], 0)
                         true_label = true_label[true_label != model.ignore_index]
                         true_label = true_label.cpu().numpy().tolist()
                         set_token_length = len(true_label)
+                        sum_episode_strips += set_token_length
                         pred_tags = [query['label2tag'][idx][int(lab)] for lab in pred_cpu[current_token_idx:current_token_idx + set_token_length]]
                         label_tags = [query['label2tag'][idx][int(lab)] for lab in true_label]
                         supp_num = support['sentence_num'][idx]
@@ -611,6 +633,29 @@ class FewShotNERFramework:
                         current_sent_idx += num
                         current_token_idx += set_token_length
                         cur_supp_sent_idx += supp_num
+
+                    if sum_episode_strips != expected_strip:
+                        raise RuntimeError(
+                            "type_stats CSV: sum of per-episode non-padding tokens ({}) != "
+                            "flat mask count ({})".format(sum_episode_strips, expected_strip)
+                        )
+                    if current_token_idx != len(pred_cpu):
+                        raise RuntimeError(
+                            "type_stats CSV: consumed {} stripped pred tokens but "
+                            "batch has {}".format(current_token_idx, len(pred_cpu))
+                        )
+                    n_supp_sents = len(support['label'])
+                    if cur_supp_sent_idx != n_supp_sents:
+                        raise RuntimeError(
+                            "type_stats CSV: support sentence cursor {} != "
+                            "len(support['label']) {}".format(cur_supp_sent_idx, n_supp_sents)
+                        )
+                    n_query_sents = len(query['label'])
+                    if current_sent_idx != n_query_sents:
+                        raise RuntimeError(
+                            "type_stats CSV: query sentence cursor {} != "
+                            "len(query['label']) {}".format(current_sent_idx, n_query_sents)
+                        )
 
                 tmp_pred_cnt, tmp_label_cnt, correct = model.metrics_by_entity(pred, label)
                 fp, fn, token_cnt, within, outer, total_span = model.error_analysis(pred, label, query)
