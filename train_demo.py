@@ -141,6 +141,10 @@ def main():
            help='Use 4-bit quantization for encoder (requires bitsandbytes).')
     parser.add_argument('--gradient_checkpointing', action='store_true',
            help='Enable gradient checkpointing to reduce memory usage (slower training).')
+    parser.add_argument('--profile_batches', action='store_true',
+           help='Print per-batch timing for train, validation, and test loops.')
+    parser.add_argument('--profile_every', type=int, default=1,
+           help='When --profile_batches is set, print every N batches.')
 
     # only for bert / roberta
     parser.add_argument('--pretrain_ckpt', default=None,
@@ -159,13 +163,12 @@ def main():
            help='use SGD instead of AdamW for BERT.')
 
     opt = parser.parse_args()
+    if opt.profile_every < 1:
+        raise ValueError("--profile_every must be >= 1")
     opt = resolve_encoder_and_tokenizer_args(opt)
 
-    if opt.encoder_family == 'llama' and (opt.use_4bit or opt.use_8bit):
-        raise NotImplementedError(
-            "--use_4bit/--use_8bit flags are parsed but quantized loading is not wired yet in this branch. "
-            "Run without these flags, or implement BitsAndBytesConfig-based loading first."
-        )
+    if opt.use_4bit and opt.use_8bit:
+        raise ValueError("Use only one of --use_4bit or --use_8bit.")
 
     if opt.use_lora and not PEFT_AVAILABLE:
         raise ImportError(
@@ -189,6 +192,8 @@ def main():
     print('encoder_name: {}'.format(opt.encoder_name_resolved))
     print('tokenizer_name: {}'.format(opt.tokenizer_name_resolved))
     print('use_lora: {}'.format(opt.use_lora))
+    print('use_4bit: {}, use_8bit: {}'.format(opt.use_4bit, opt.use_8bit))
+    print('profile_batches: {}, profile_every: {}'.format(opt.profile_batches, opt.profile_every))
     if opt.use_lora:
         print('lora_r: {}, lora_alpha: {}, lora_dropout: {}, lora_bias: {}, lora_targets: {}'.format(
             opt.lora_r, opt.lora_alpha, opt.lora_dropout, opt.lora_bias, ','.join(opt.lora_target_modules_list)
@@ -209,15 +214,30 @@ def main():
             'lora_target_modules': opt.lora_target_modules_list,
             'lora_bias': opt.lora_bias
         }
-        word_encoder = LlamaWordEncoder(pretrain_ckpt, use_lora=opt.use_lora, lora_config=lora_config)
+        word_encoder = LlamaWordEncoder(
+            pretrain_ckpt,
+            use_lora=opt.use_lora,
+            lora_config=lora_config,
+            use_4bit=opt.use_4bit,
+            use_8bit=opt.use_8bit,
+        )
         tokenizer = load_tokenizer(opt.tokenizer_name_resolved)
         
         if opt.gradient_checkpointing:
+            if hasattr(word_encoder.model, "enable_input_require_grads"):
+                word_encoder.model.enable_input_require_grads()
+            elif hasattr(word_encoder.model, "get_input_embeddings"):
+                def make_inputs_require_grad(module, input, output):
+                    output.requires_grad_(True)
+
+                word_encoder.model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
             word_encoder.model.gradient_checkpointing_enable()
         
-        if opt.use_bf16:
+        if opt.use_bf16 and not (opt.use_4bit or opt.use_8bit):
             print("[INFO] Using bfloat16 precision for Llama encoder")
             word_encoder.model = word_encoder.model.to(torch.bfloat16)
+        elif opt.use_bf16:
+            print("[INFO] Using bfloat16 compute dtype for quantized Llama encoder")
     else:
         raise ValueError("Unsupported encoder_family: {}".format(opt.encoder_family))
 
@@ -275,8 +295,10 @@ def main():
         ckpt = opt.save_ckpt
     print('model-save-path:', ckpt)
 
-    if torch.cuda.is_available():
+    if torch.cuda.is_available() and not (opt.encoder_family == 'llama' and (opt.use_4bit or opt.use_8bit)):
         model.cuda()
+    elif torch.cuda.is_available():
+        print("[INFO] Skipping model.cuda(); quantized Llama was placed by from_pretrained(device_map='auto')")
 
     if not opt.only_test:
         if opt.lr == -1:
@@ -285,7 +307,8 @@ def main():
         framework.train(model, prefix,
                 load_ckpt=opt.load_ckpt, save_ckpt=ckpt,
                 val_step=opt.val_step, fp16=opt.fp16,
-                train_iter=opt.train_iter, warmup_step=int(opt.train_iter * 0.1), val_iter=opt.val_iter, learning_rate=opt.lr, use_sgd_for_bert=opt.use_sgd_for_bert)
+                train_iter=opt.train_iter, warmup_step=int(opt.train_iter * 0.1), val_iter=opt.val_iter, learning_rate=opt.lr, use_sgd_for_bert=opt.use_sgd_for_bert,
+                profile_batches=opt.profile_batches, profile_every=opt.profile_every)
     else:
         ckpt = opt.load_ckpt
         if ckpt is None:
@@ -296,7 +319,14 @@ def main():
     if not os.path.exists(opt.metrics_dir):
         os.makedirs(opt.metrics_dir, exist_ok=True)
     metrics_csv = os.path.join(opt.metrics_dir, f"{prefix}.csv")
-    precision, recall, f1, fp, fn, within, outer = framework.eval(model, opt.test_iter, ckpt=ckpt, save_csv=metrics_csv)
+    precision, recall, f1, fp, fn, within, outer = framework.eval(
+        model,
+        opt.test_iter,
+        ckpt=ckpt,
+        save_csv=metrics_csv,
+        profile_batches=opt.profile_batches,
+        profile_every=opt.profile_every,
+    )
     print("RESULT: precision: %.4f, recall: %.4f, f1:%.4f" % (precision, recall, f1))
     print('ERROR ANALYSIS: fp: %.4f, fn: %.4f, within:%.4f, outer: %.4f'%(fp, fn, within, outer))
 
