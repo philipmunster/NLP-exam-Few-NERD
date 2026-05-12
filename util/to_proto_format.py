@@ -11,7 +11,6 @@ import os as _os
 
 
 def load_proto_inter_types(metrics_dir="metrics"):
-    """Return the union of all 'type' values across proto-inter CSVs, excluding 'overall'."""
     valid = set()
     for path in _glob.glob(_os.path.join(metrics_dir, "proto-inter-*.csv")):
         df = pd.read_csv(path)
@@ -118,8 +117,6 @@ def build_proto_rows(evaluated_rows, df, valid_types=None):
             fine[lbl]["within"] += w
             fine[lbl]["outer"]  += o
 
-    # ── Build output rows ────────────────────────────────────────────────────
-
     rows = []
 
     p, r, f1 = compute_prf(total_tp, total_fp, total_fn)
@@ -219,7 +216,7 @@ if __name__ == "__main__":
         all_results = evaluate(group_df)
         evaluated   = [r for r in all_results if not r["skipped"]]
 
-        out_path = os.path.join(out_dir, f"proto-n{n}-k{k}.csv")
+        out_path = os.path.join(out_dir, f"generative-n{n}-k{k}.csv")
         results_to_proto_csv(evaluated, group_df, out_path, valid_types)
 
     print(f"\nDone. {len(groups)} files saved to: {out_dir}/")
