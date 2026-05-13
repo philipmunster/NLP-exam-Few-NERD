@@ -5,6 +5,9 @@ We added ProtoLlama, LoRa finetuning and Llama instruct.
 ## Download dataset from Huggingface
 bash data/download.sh inter
 
+## Loading Llama models from Huggingface
+The Llama 3.1 models are gated on Huggingface. In order to run the models in this repo you will have to request access to them first.
+
 ## Venv
 - cd to repo
 - uv init
