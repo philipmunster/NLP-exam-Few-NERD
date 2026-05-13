@@ -1,53 +1,134 @@
-### Download dataset from Huggingface
+# Discriminative Episodic Meta-Learning versus Generative In-Context Learning for Few-Shot NER
+This repository is a fork of https://github.com/thunlp/Few-NERD.
+We added ProtoLlama, LoRa finetuning and Llama instruct.
+
+## Download dataset from Huggingface
 bash data/download.sh inter
 
-### Venv
+## Venv
 - cd to repo
 - uv init
 - uv venv
 - source .venv/bin/activate
 - uv pip install -r requirements.txt
 
-### Test run
-python3 train_demo.py --mode inter --lr 1e-4 --batch_size 8 --trainN 5 --N 5 --K 1 --Q 1 --train_iter 100 --val_iter 50 --test_iter 100 --val_step 100 --max_length 64 --model proto
+## Running models
+Make sure to have venv and dataset in order first. Run the following from the CLI. See paper for hardware and training time.
 
-### ProtoLlama (Phase 3+)
-
-#### BERT Baseline (reference)
+### ProtoLlama: 5-way 1-shot
 ```shell
-python3 train_demo.py --mode inter --encoder_family bert \
-  --lr 1e-4 --batch_size 8 --trainN 5 --N 5 --K 1 --Q 1 \
-  --train_iter 600 --val_iter 100 --test_iter 500 --val_step 20 \
-  --max_length 64 --model proto
+python3 train_demo.py \
+  --mode inter \
+  --encoder_family llama \
+  --encoder_name meta-llama/Llama-3.1-8B \
+  --use_lora \
+  --lora_r 16 \
+  --lora_alpha 32 \
+  --lora_dropout 0.05 \
+  --use_bf16 \
+  --gradient_checkpointing \
+  --model proto \
+  --trainN 5 \
+  --N 5 \
+  --K 1 \
+  --Q 1 \
+  --batch_size 1 \
+  --lr 1e-4 \
+  --train_iter 8000 \
+  --val_iter 250 \
+  --test_iter 1000 \
+  --val_step 1600 \
+  --max_length 64 \
+  --seed 0 \
+  --ckpt_name llama-lora-inter-5way-1shot
 ```
 
-#### ProtoLlama with LoRA on A100
+### ProtoLlama: 5-way 5-shot
 ```shell
-python3 train_demo.py --mode inter --encoder_family llama \
+python3 train_demo.py \
+  --mode inter \
+  --encoder_family llama \
   --encoder_name meta-llama/Llama-3.1-8B \
-  --use_lora --lora_r 16 --lora_alpha 32 --lora_dropout 0.05 \
-  --use_bf16 --gradient_checkpointing \
-  --lr 1e-4 --batch_size 8 --trainN 5 --N 5 --K 1 --Q 1 \
-  --train_iter 600 --val_iter 100 --test_iter 500 --val_step 20 \
-  --max_length 64 --model proto
+  --use_lora \
+  --lora_r 16 \
+  --lora_alpha 32 \
+  --lora_dropout 0.05 \
+  --use_bf16 \
+  --gradient_checkpointing \
+  --model proto \
+  --trainN 5 \
+  --N 5 \
+  --K 5 \
+  --Q 1 \
+  --batch_size 1 \
+  --lr 1e-4 \
+  --train_iter 8000 \
+  --val_iter 250 \
+  --test_iter 1000 \
+  --val_step 1600 \
+  --max_length 64 \
+  --seed 0 \
+  --ckpt_name llama-lora-inter-5way-5shot
 ```
 
-#### ProtoLlama Fine-tuning (no LoRA, requires more memory)
+### ProtoLlama: 10-way 1-shot
 ```shell
-python3 train_demo.py --mode inter --encoder_family llama \
+python3 train_demo.py \
+  --mode inter \
+  --encoder_family llama \
   --encoder_name meta-llama/Llama-3.1-8B \
-  --use_bf16 --gradient_checkpointing \
-  --lr 1e-5 --batch_size 4 --trainN 5 --N 5 --K 1 --Q 1 \
-  --train_iter 600 --val_iter 100 --test_iter 500 --val_step 20 \
-  --max_length 64 --model proto
+  --use_lora \
+  --lora_r 16 \
+  --lora_alpha 32 \
+  --lora_dropout 0.05 \
+  --use_bf16 \
+  --gradient_checkpointing \
+  --model proto \
+  --trainN 10 \
+  --N 10 \
+  --K 1 \
+  --Q 1 \
+  --batch_size 1 \
+  --lr 1e-4 \
+  --train_iter 8000 \
+  --val_iter 250 \
+  --test_iter 1000 \
+  --val_step 1600 \
+  --max_length 64 \
+  --seed 0 \
+  --ckpt_name llama-lora-inter-10way-1shot
 ```
 
-#### Test-only (load checkpoint)
+### ProtoLlama: 10-way 5-shot
 ```shell
-python3 train_demo.py --mode inter --encoder_family llama \
+python3 train_demo.py \
+  --mode inter \
+  --encoder_family llama \
   --encoder_name meta-llama/Llama-3.1-8B \
-  --use_lora --load_ckpt checkpoint/proto-inter-5-1-seed0.pth.tar \
-  --only_test --test_iter 500 --max_length 64 --model proto
+  --use_lora \
+  --lora_r 16 \
+  --lora_alpha 32 \
+  --lora_dropout 0.05 \
+  --use_bf16 \
+  --gradient_checkpointing \
+  --model proto \
+  --trainN 10 \
+  --N 10 \
+  --K 5 \
+  --Q 1 \
+  --batch_size 1 \
+  --lr 1e-4 \
+  --train_iter 8000 \
+  --val_iter 250 \
+  --test_iter 1000 \
+  --val_step 1600 \
+  --max_length 64 \
+  --seed 0 \
+  --ckpt_name llama-lora-inter-10way-5shot
+```
+
+### BERT Baseline (reference)
+See few-nerd paper for ProtoBert terminal commands to recreate baseline results.
 ```
 
 ### Model args
@@ -57,8 +138,8 @@ python3 train_demo.py --mode inter --encoder_family llama \
 -- N                    Num of entities types during val and test (higher is harder)
 -- K                    Num of support examples of each entity type in train, val and test (higher is easier)
 -- Q                    Num of query per entity type i.e. how many samples the model get graded on (higher means more gradient signal per episode, smoother training)
--- batch_size           I think it's how many episodes is in a batch
--- train_iter           num of batches during training (we take a step after each batch)
+-- batch_size           Episodes in a batch
+-- train_iter           num of batches during training
 -- val_step             how many train batches between each pause to validate on val step. 
 -- val_iter             num of validation batches to evaluate when we pause. We weights are the point of the best val score is the final model.
 -- test_iter            num of test episodes batches to evaluate model and get final results.
