@@ -130,6 +130,14 @@ python3 train_demo.py \
   --ckpt_name llama-lora-inter-10way-5shot
 ```
 
+### Llama-Instruct (Generative Baseline)
+All parameters are hardcoded. To run:
+```shell
+python3 generative/generative.py
+```
+Key settings: `model=meta-llama/Llama-3.1-8B-Instruct`, `N=[5,10]`, `K=[1,5]`, `seeds=1–500`, `Q=5`. Output is appended to `generative/output/generative_output_final.csv`.
+```
+
 ### BERT Baseline (reference)
 See few-nerd paper for ProtoBert terminal commands to recreate baseline results.
 ```
